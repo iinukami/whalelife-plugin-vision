@@ -1,0 +1,5 @@
+id: vision
+name: 视觉
+version: 0.1.0
+description: 跨插件图片与视频准备、按需抽帧及高清补看；主模型查看需宿主多模态接口
+apiVersion: "1.0.0"

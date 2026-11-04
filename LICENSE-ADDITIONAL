@@ -1,0 +1,45 @@
+WhaleLife additional terms under GNU AGPL version 3, Section 7
+
+These terms supplement AGPL-3.0-only under Section 7(b) and Section 7(c).
+They apply only to material carrying a notice referring to this file, and
+to copies and adaptations of that material, to the extent the relevant
+copyright holders are authorized to impose these terms. They do not
+relicense third-party material.
+
+1. Preservation of reasonable attribution (Section 7(b))
+Preserve the existing copyright notices identifying the authors of the
+covered material, together with the original project name and source
+repository URL specified in NOTICE.md, in copies of that material or in
+the Appropriate Legal Notices displayed by works containing it. These
+notices may be reasonably relocated or consolidated, provided they remain
+readable and accessible. You may add accurate notices for your own work.
+
+2. Accurate statement of origin (Section 7(c))
+Do not misrepresent the origin of the covered material. In particular,
+do not claim that the original material was authored by you or that a
+work containing a substantial portion of it was entirely your original
+creation. This includes such claims in project descriptions, release
+notes, marketplace listings, and promotional statements. Clearly and
+reasonably distinguish modified versions from the original.
+
+These terms do not prohibit commercial use, charging fees, renaming a
+fork, or accurately describing your own contributions. They do not require
+advertising or an acknowledgment in every article or video. These additional terms do not themselves require disclosure of private
+user data, credentials, or unrelated works. The obligations in the AGPL
+text, including those concerning Corresponding Source, remain unchanged.
+
+The standard AGPL text in LICENSE is unmodified. No other restrictions
+are added. For this file, the English wording above is authoritative;
+the Chinese explanation below is provided for convenience.
+
+中文说明（英文条款为准）
+
+本文件依据 AGPL 第 7(b)、7(c) 条，适用于文件声明指向本文件的原创材料
+及其复制、改编版本，不改变第三方材料的许可。
+
+- 保留合理的作者版权声明、NOTICE.md 中的原项目名称与源码地址；可在
+  源码或适当的法律声明中合理集中展示，保持可读、可访问，也可增加自己的贡献说明。
+- 不得歪曲来源、冒认原作者，或将包含原项目实质部分的作品宣传为完全由自己原创。
+  修改版应合理标明区别。允许商业使用、收费、改名及如实描述自己的贡献。
+- 不要求每篇文章或每段视频打广告；本附加条款不另行要求公开私人数据、密钥或无关项目。
+  完整对应源码的提供范围与触发条件仍以 AGPL 正文为准。
