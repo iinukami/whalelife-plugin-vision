@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  * Additional terms under AGPLv3 Section 7: see LICENSE-ADDITIONAL.
  */
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 export const MiB = 1024 * 1024;
 export const MAX_PIXELS = 40_000_000;
 export const MAX_OUTPUT = 8 * MiB;
@@ -40,8 +40,8 @@ export interface VisionService {
   prepare(input: PrepareInput, options?: CallOptions): Promise<PreparedMedia>;
   release(input: { sessionId: string; mediaRef: string }, options?: CallOptions): Promise<{ released: boolean }>;
 }
-export type Config = { ttlSeconds: number; maxMediaMiB: number; maxTotalMiB: number; ffmpegPath: string; ffprobePath: string };
-export const defaults: Config = { ttlSeconds: 1800, maxMediaMiB: 64, maxTotalMiB: 256, ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe' };
+export type Config = { ttlSeconds: number; maxMediaMiB: number; maxTotalMiB: number };
+export const defaults: Config = { ttlSeconds: 1800, maxMediaMiB: 64, maxTotalMiB: 256 };
 export class VisionError extends Error {
   code: string;
   constructor(code: string, message: string) { super(message); this.name = 'VisionError'; this.code = code; }
@@ -79,12 +79,7 @@ export function configOf(value: unknown): Config {
     if (!Number.isInteger(result[key])) fail('invalid_config', '容量和有效期必须为整数。');
   }
   if (result.maxTotalMiB < result.maxMediaMiB) fail('invalid_config', '总容量不能小于单份媒体容量。');
-  for (const key of ['ffmpegPath', 'ffprobePath'] as const) {
-    if (o[key] === undefined) continue;
-    if (typeof o[key] !== 'string' || !o[key].trim() || o[key].length > 1000 || /[\x00-\x1f]/.test(o[key]))
-      fail('invalid_config', '解码器路径无效。');
-    result[key] = o[key].trim();
-  }
+  // Legacy decoder paths are deliberately ignored; saved media limits remain valid.
   return result;
 }
 export function cropOf(value: unknown): Crop | undefined {

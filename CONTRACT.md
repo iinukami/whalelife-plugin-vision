@@ -1,6 +1,6 @@
 # vision 服务契约
 
-服务版本 1.0.0；插件版本 0.1.0。状态：媒体准备服务可用；具备 `ctx.tools.registerMultimodal` 的宿主可使用原生视觉工具。公开类型见 `src/types.ts`。
+服务版本 1.0.0；插件版本 0.1.1。状态：媒体准备服务可用；具备 `ctx.tools.registerMultimodal` 的宿主可使用原生视觉工具。公开类型见 `src/types.ts`。视频组件随 Windows x64 包内置，路径不再是用户配置。
 
 ## 依赖与职责
 
@@ -33,6 +33,7 @@ GIF/WebP 使用帧延时选择对应页面，缺失延时时声明估算。原�
 - 默认 TTL 1800 秒，允许 30–7200 秒。默认单份 64 MiB、总量 256 MiB，最高分别 64/512 MiB。单份上限同时考虑跨进程 base64 传输的内存开销；图片仍有 25 MiB 的固定上限。容量满时拒绝新请求，不静默淘汰别人的媒体。
 - 每会话最多 16 引用，总计最多 64；最多 2 个同时进行的调用，超出返回 `busy`。单操作 120 秒，单次视频解码 30 秒；文件、子进程和输出大小均受限。
 - 解码只访问本插件暂存文件。FFmpeg 使用固定参数数组、无 shell、禁 stdin、隐藏窗口，并限制输入协议/格式。原始 stderr 不回传或日志化；取消只终止本次拥有的解码子进程。
+- `status().decoder` 返回 `{ready,source:'bundled',version,problem}`，不返回本机路径；`videoDecoder` 为 `bundled` 或 `unavailable`。启动验证固定程序摘要和可运行性，缺失/损坏只关闭视频处理，图片/GIF 不依赖这些程序。旧配置中的 `ffmpegPath` / `ffprobePath` 忽略，不执行它们，也不退回系统 PATH。
 - 过期、释放、停用或跨会话读取统一返回 `media_unavailable`，无法通过错误区分别人的引用。旧实例服务由宿主撤销；重载后引用不恢复。
 - `quota`/`busy` 表示容量/并发限制；`unsupported_media`/`mime_mismatch`/`decode_failed` 表示输入问题；`decoder_unavailable`/`decoder_timeout` 表示视频解码问题；`invalid_input` 表示范围/参数错误；`output_limit` 表示返回图片太大；`cancelled`/`stopped` 表示生命周期终止。
 - 所有异常只返回固定错误码和简短说明。媒体正文、base64、路径和用户给出的取消原因不被写入错误。不会调用模型或产生平台副作用，失败不自动重试。

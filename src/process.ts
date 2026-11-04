@@ -29,7 +29,7 @@ export function runProcess(executable: string, args: string[], signal: AbortSign
     });
     // Decoder diagnostics can include paths or media text; drain without retaining/logging.
     child.stderr.resume();
-    child.on('error', () => { failure ??= new VisionError('decoder_unavailable', '解码器不可用，请检查 FFmpeg / ffprobe 配置。'); });
+    child.on('error', () => { failure ??= new VisionError('decoder_unavailable', '内置视频组件无法启动，请重新安装完整视觉插件。'); });
     child.once('close', (code) => {
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);

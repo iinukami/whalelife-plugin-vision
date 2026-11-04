@@ -7,6 +7,8 @@ import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { prepareRuntime } from './prepare-runtime.mjs';
+const decoderRoot = await prepareRuntime();
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
 const dist = join(root, 'dist'), out = join(dist, 'vision');
 mkdirSync(dist, { recursive: true });
@@ -17,8 +19,11 @@ if (existsSync(out)) {
   rmSync(out, { recursive: true });
 }
 mkdirSync(out);
-for (const file of ['src', 'index.ts', 'plugin.yaml', 'package.json', 'package-lock.json', 'README.md', 'CONTRACT.md', 'CORE-REQUEST.md', 'LICENSE', 'LICENSE-ADDITIONAL', 'NOTICE.md', 'THIRD_PARTY_NOTICES.md'])
+for (const file of ['src', 'vendor', 'index.ts', 'plugin.yaml', 'package.json', 'package-lock.json', 'README.md', 'CONTRACT.md', 'CORE-REQUEST.md', 'LICENSE', 'LICENSE-ADDITIONAL', 'NOTICE.md', 'THIRD_PARTY_NOTICES.md'])
   cpSync(join(root, file), join(out, file), { recursive: true });
+mkdirSync(join(out, 'runtime/ffmpeg/win32-x64'), { recursive: true });
+for (const file of ['ffmpeg.exe', 'ffprobe.exe', 'LICENSE', 'README.txt'])
+  cpSync(join(decoderRoot, file), join(out, 'runtime/ffmpeg/win32-x64', file));
 const npm = join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
 const result = spawnSync(process.execPath, [npm, 'ls', '--omit=dev', '--all', '--parseable'], { cwd: root, encoding: 'utf8', windowsHide: true });
 if (result.status !== 0) throw Error('Cannot resolve production dependencies');

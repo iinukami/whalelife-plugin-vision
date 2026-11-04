@@ -7,7 +7,8 @@ import { readFile } from 'node:fs/promises';
 import { runProcess } from './process.ts';
 import { selectSamples } from './sampling.ts';
 import { MAX_PIXELS, MAX_OUTPUT, MAX_FRAMES, MiB, fail, numberIn, cropOf,
-  type Config, type MediaInfo, type PrepareInput, type PreparedMedia, type PreparedImage, type Crop } from './types.ts';
+  type MediaInfo, type PrepareInput, type PreparedMedia, type PreparedImage, type Crop } from './types.ts';
+import type { BundledDecoder } from './decoder.ts';
 import type { StoredMedia } from './store.ts';
 
 const GRID_W = 64, GRID_H = 36, GRID_BYTES = GRID_W * GRID_H * 3;
@@ -66,8 +67,8 @@ function decoderInput(path: string, mime: string) {
   return ['-protocol_whitelist', 'file,pipe', '-format_whitelist', demuxer(mime), '-f', demuxer(mime),
     ...(mime === 'video/mp4' ? ['-enable_drefs', '0', '-use_absolute_path', '0'] : []), '-i', path];
 }
-async function probe(path: string, mime: string, config: Config, signal: AbortSignal): Promise<MediaInfo> {
-  const result = await runProcess(config.ffprobePath, ['-v', 'error', ...decoderInput(path, mime),
+async function probe(path: string, mime: string, decoder: BundledDecoder, signal: AbortSignal): Promise<MediaInfo> {
+  const result = await runProcess(decoder.paths().ffprobePath, ['-v', 'error', ...decoderInput(path, mime),
     '-show_entries', 'stream=codec_type,width,height,duration,nb_frames:stream_tags=rotate:stream_side_data=rotation:format=duration', '-of', 'json'], signal, MiB, 15_000);
   let data: any;
   try { data = JSON.parse(result.toString('utf8')); } catch { fail('decode_failed', '视频元信息无效。'); }
@@ -84,11 +85,11 @@ async function probe(path: string, mime: string, config: Config, signal: AbortSi
     frameCount: Number.isSafeInteger(frames) && frames > 0 ? frames : null,
     hasAudio: data.streams.some((s: any) => s.codec_type === 'audio'), timing: 'container' };
 }
-export async function inspectMedia(bytes: Buffer, path: string, requestedMime: string, config: Config, signal: AbortSignal): Promise<MediaInfo> {
+export async function inspectMedia(bytes: Buffer, path: string, requestedMime: string, decoder: BundledDecoder, signal: AbortSignal): Promise<MediaInfo> {
   signal.throwIfAborted();
   const mime = mimeOf(bytes);
   if (mime !== requestedMime) fail('mime_mismatch', '声明的媒体类型与文件内容不一致。');
-  if (mime.startsWith('video/')) return probe(path, mime, config, signal);
+  if (mime.startsWith('video/')) return probe(path, mime, decoder, signal);
   if (bytes.length > 25 * MiB) fail('media_size', '图片或动图不得超过 25 MiB。');
   const meta = await imageMetadata(bytes);
   const expected = { 'image/png': 'png', 'image/jpeg': 'jpeg', 'image/gif': 'gif', 'image/webp': 'webp' }[mime];
@@ -128,14 +129,14 @@ function timeRange(input: PrepareInput, info: MediaInfo) {
   if (to <= from || to - from > 60) fail('invalid_input', '每次查看的时间段必须大于零且不超过 60 秒。');
   return { from, to, at: null, next: to < duration ? to : null };
 }
-async function videoFrame(path: string, mime: string, at: number, size: number, config: Config, signal: AbortSignal) {
-  return runProcess(config.ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-threads', '1',
+async function videoFrame(path: string, mime: string, at: number, size: number, decoder: BundledDecoder, signal: AbortSignal) {
+  return runProcess(decoder.paths().ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-threads', '1',
     '-ss', at.toFixed(6), ...decoderInput(path, mime), '-map', '0:v:0', '-an', '-sn', '-dn', '-frames:v', '1',
     '-filter_threads', '1', '-vf', `scale=${size}:${size}:force_original_aspect_ratio=decrease`,
     '-threads', '1', '-c:v', 'mjpeg', '-q:v', '2', '-f', 'image2pipe', 'pipe:1'], signal, 8 * MiB);
 }
-async function videoSamples(entry: StoredMedia, from: number, to: number, config: Config, signal: AbortSignal) {
-  const raw = await runProcess(config.ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-threads', '1',
+async function videoSamples(entry: StoredMedia, from: number, to: number, decoder: BundledDecoder, signal: AbortSignal) {
+  const raw = await runProcess(decoder.paths().ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-threads', '1',
     '-ss', from.toFixed(6), ...decoderInput(entry.path, entry.info.mime), '-t', (to - from).toFixed(6),
     '-map', '0:v:0', '-an', '-sn', '-dn', '-filter_threads', '1', '-vf',
     `setpts=PTS-STARTPTS,fps=2:start_time=0:round=down,scale=${GRID_W}:${GRID_H}:force_original_aspect_ratio=decrease,pad=${GRID_W}:${GRID_H}:(ow-iw)/2:(oh-ih)/2,format=rgb24`,
@@ -183,7 +184,7 @@ async function renderFrame(frame: DecodedFrame, detail: string, crop: Crop | und
   return { bytes, width: meta.width!, height: meta.height!, frame };
 }
 
-export async function prepareMedia(entry: StoredMedia, input: PrepareInput, config: Config, signal: AbortSignal): Promise<PreparedMedia> {
+export async function prepareMedia(entry: StoredMedia, input: PrepareInput, decoder: BundledDecoder, signal: AbortSignal): Promise<PreparedMedia> {
   const range = timeRange(input, entry.info);
   const detail = input.detail ?? (range.at === null ? 'overview' : 'detail');
   const layout = input.layout ?? 'frames';
@@ -194,12 +195,12 @@ export async function prepareMedia(entry: StoredMedia, input: PrepareInput, conf
   if (entry.info.kind === 'image') frames.push({ bytes: await readFile(entry.path, { signal }), atSeconds: null, reason: 'still' });
   else if (entry.info.kind === 'video') {
     const selection = range.at !== null ? { samples: [{ atSeconds: range.at, reason: 'requested', score: 0 }], omittedCandidates: 0 }
-      : await videoSamples(entry, range.from!, range.to!, config, signal);
+      : await videoSamples(entry, range.from!, range.to!, decoder, signal);
     omitted = selection.omittedCandidates;
     for (const sample of selection.samples) {
       // Keep enough pixels for a requested crop; cropping after overview scaling loses small text.
       const size = crop ? 4096 : detail === 'detail' ? 1600 : 640;
-      frames.push({ bytes: await videoFrame(entry.path, entry.info.mime, sample.atSeconds, size, config, signal), atSeconds: sample.atSeconds, reason: sample.reason });
+      frames.push({ bytes: await videoFrame(entry.path, entry.info.mime, sample.atSeconds, size, decoder, signal), atSeconds: sample.atSeconds, reason: sample.reason });
     }
   } else {
     const bytes = await readFile(entry.path, { signal });

@@ -3,6 +3,7 @@
  * Additional terms under AGPLv3 Section 7: see LICENSE-ADDITIONAL.
  */
 import { MediaStore } from './store.ts';
+import { BundledDecoder } from './decoder.ts';
 import { inspectMedia, prepareMedia } from './media.ts';
 import { VERSION, MiB, identity, reference, object, fail, safeError, VisionError,
   type Config, type VisionService, type CallOptions, type PrepareInput } from './types.ts';
@@ -18,13 +19,16 @@ export class Vision implements VisionService {
   cleanupFailed = false;
   timer?: ReturnType<typeof setInterval>;
   stopPromise?: Promise<void>;
-  constructor(root: string, config: Config, signal: AbortSignal, now?: () => number) {
+  decoder: BundledDecoder;
+  constructor(root: string, config: Config, signal: AbortSignal, now?: () => number, decoder = new BundledDecoder()) {
     this.config = config; this.store = new MediaStore(root, config, now);
+    this.decoder = decoder;
     this.signal = AbortSignal.any([signal, this.controller.signal]);
   }
   async start() {
     this.signal.throwIfAborted();
     await this.store.init();
+    await this.decoder.start(this.signal);
     this.signal.throwIfAborted();
     this.timer = setInterval(() => { void this.store.sweep().catch(() => { this.cleanupFailed = true; }); }, 30_000);
     this.timer.unref();
@@ -36,7 +40,7 @@ export class Vision implements VisionService {
       modelSupport: 'selected_provider_must_accept_images',
       message: this.mainModelViewing ? '可通过 vision_view 将图片和视频采样画面交给当前主模型。' : '媒体准备服务可用；主模型查看等待宿主公开多模态工具接口。',
       supported: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'],
-      videoDecoder: 'checked_on_use', ...this.store.summary(), activeOperations: this.pending.size,
+      videoDecoder: this.decoder.ready ? 'bundled' : 'unavailable', decoder: this.decoder.status(), ...this.store.summary(), activeOperations: this.pending.size,
       ttlSeconds: this.config.ttlSeconds, maxMediaMiB: this.config.maxMediaMiB,
       maxTotalMiB: this.config.maxTotalMiB, cleanupFailed: this.cleanupFailed };
   }
@@ -71,7 +75,7 @@ export class Vision implements VisionService {
       const bytes = Buffer.from(o.base64, 'base64');
       if (typeof o.mime !== 'string') fail('invalid_input', '需要媒体 MIME 类型。');
       const mime = o.mime;
-      return this.store.offer(session, bytes, path => inspectMedia(bytes, path, mime, this.config, signal), signal);
+      return this.store.offer(session, bytes, path => inspectMedia(bytes, path, mime, this.decoder, signal), signal);
     }, options);
   }
   describe(input: { sessionId: string; mediaRef: string }, options?: CallOptions) {
@@ -81,7 +85,7 @@ export class Vision implements VisionService {
     return this.operation(async signal => {
       const o = object(input);
       const session = identity(o.sessionId), ref = reference(o.mediaRef);
-      return this.store.use(session, ref, signal, entry => prepareMedia(entry, input, this.config, signal));
+      return this.store.use(session, ref, signal, entry => prepareMedia(entry, input, this.decoder, signal));
     }, options);
   }
   release(input: { sessionId: string; mediaRef: string }, options?: CallOptions) {

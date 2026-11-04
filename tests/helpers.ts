@@ -6,10 +6,12 @@ import { temporaryDirectory } from './temporary-directory.ts';
 import { Vision } from '../src/runtime.ts';
 import { defaults, type Config } from '../src/types.ts';
 import { runProcess } from '../src/process.ts';
-export async function fixture(t: TestContext, changes: Partial<Config> = {}, now?: () => number) {
+import { BundledDecoder, bundledRoot } from '../src/decoder.ts';
+export const ffmpeg = join(bundledRoot, 'ffmpeg.exe');
+export async function fixture(t: TestContext, changes: Partial<Config> = {}, now?: () => number, decoder?: BundledDecoder) {
   const temp = await temporaryDirectory(t);
   const controller = new AbortController();
-  const app = new Vision(join(temp.dir, 'media'), { ...defaults, ...changes }, controller.signal, now);
+  const app = new Vision(join(temp.dir, 'media'), { ...defaults, ...changes }, controller.signal, now, decoder);
   temp.cleanup.push(() => app.stop());
   await app.start();
   return { ...temp, controller, app };
@@ -26,7 +28,7 @@ export async function gif() {
 }
 export async function movie(dir: string, duration = 4) {
   const path = join(dir, 'synthetic.mp4');
-  await runProcess('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+  await runProcess(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
     '-f', 'lavfi', '-i', 'color=c=red:s=160x90:r=10:d=1', '-f', 'lavfi', '-i', `color=c=blue:s=160x90:r=10:d=${duration - 1}`,
     '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=8000',
     '-filter_complex_threads', '1', '-filter_complex', '[0:v][1:v]concat=n=2:v=1:a=0[v]', '-map', '[v]', '-map', '2:a',

@@ -1,6 +1,6 @@
 {
   "name": "whalelife-plugin-vision",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "engines": { "node": ">=24.22.1" },
@@ -8,7 +8,8 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "node --test --test-concurrency=1 tests/*.test.ts",
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "setup:media": "node scripts/prepare-runtime.mjs"
   },
   "dependencies": { "sharp": "0.35.5" },
   "devDependencies": { "@types/node": "24.19.2", "typescript": "5.9.3" }

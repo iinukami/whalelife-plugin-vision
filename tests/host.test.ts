@@ -84,6 +84,9 @@ for (const baseline of ['current', '213b52b']) test(`packaged plugin on ${baseli
   let state: any = await (await get('state')).json();
   assert.ok(state.status, JSON.stringify(state));
   assert.equal(state.status.mainModelViewing, native); assert.equal(state.status.mediaPreparation, true);
+  assert.equal(state.status.decoder.ready, true);
+  assert.deepEqual(Object.keys(state.config).sort(), ['maxMediaMiB', 'maxTotalMiB', 'ttlSeconds']);
+  assert.doesNotMatch(await (await get('settings')).text(), /name="ffmpegPath"|name="ffprobePath"/);
   assert.match(await (await get('settings')).text(), /旧宿主显示主模型查看暂不可用/);
   assert.equal(app.tools.list().some((x: any) => x.function.name === 'vision_view'), native);
   if (native) assert.deepEqual(app.tools.list().find((x: any) => x.function.name === 'vision_view').function.parameters.required, ['mediaRef']);

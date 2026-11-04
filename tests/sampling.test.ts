@@ -22,10 +22,10 @@ test('busy scene cap preserves interval start/end and reports omitted candidates
   assert.equal(result.samples.at(-1)!.atSeconds, 49.5);
   assert.equal(result.omittedCandidates, 92);
 });
-test('configuration rejects invalid quotas and keeps explicit decoder paths', () => {
+test('configuration keeps media limits and ignores obsolete decoder paths', () => {
   assert.deepEqual(configOf({}), defaults);
   assert.throws(() => configOf({ ttlSeconds: NaN }));
   assert.throws(() => configOf({ maxTotalMiB: 1 }));
-  assert.throws(() => configOf({ ffmpegPath: 'ffmpeg\n--extra' }));
-  assert.equal(configOf({ ffmpegPath: 'C:/Program Files/ffmpeg.exe' }).ffmpegPath, 'C:/Program Files/ffmpeg.exe');
+  assert.deepEqual(configOf({ ffmpegPath: 'ffmpeg\n--extra', ffprobePath: null }), defaults);
+  assert.deepEqual(configOf({ ttlSeconds: 60, ffmpegPath: 'C:/old/ffmpeg.exe' }), { ...defaults, ttlSeconds: 60 });
 });

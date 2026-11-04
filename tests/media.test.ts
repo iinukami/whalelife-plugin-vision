@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import sharp from 'sharp';
-import { fixture, png, gif, movie, offer } from './helpers.ts';
+import { fixture, png, gif, movie, offer, ffmpeg } from './helpers.ts';
+import { BundledDecoder } from '../src/decoder.ts';
 import { join } from 'node:path';
 import { runProcess } from '../src/process.ts';
 test('image is real decodable pixels; crop preserves selected region; original bytes stay intact', async t => {
@@ -63,7 +64,8 @@ test('invalid crop and time parameters fail instead of silently changing what is
     await assert.rejects(f.app.prepare({ sessionId: 'session-a', mediaRef: animation.mediaRef, ...args }), { code: 'invalid_input' });
 });
 test('missing video decoder is explicit and does not disable still images', async t => {
-  const f = await fixture(t, { ffprobePath: 'vision-nonexistent-ffprobe' });
+  const f = await fixture(t, {}, undefined, new BundledDecoder(join(import.meta.dirname, 'missing-runtime')));
+  assert.equal((f.app.status().decoder as any).ready, false);
   await assert.rejects(offer(f.app, await movie(f.dir), 'video/mp4'), { code: 'decoder_unavailable' });
   const ref = await offer(f.app, await png());
   assert.equal((await f.app.prepare({ sessionId: 'session-a', mediaRef: ref.mediaRef })).images.length, 1);
@@ -91,7 +93,7 @@ test('static and animated WebP preserve the declared format and temporal view', 
 test('WebM is decoded through the restricted file demuxer and produces visual samples', async t => {
   const f = await fixture(t); await movie(f.dir);
   const target = join(f.dir, 'synthetic.webm');
-  await runProcess('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', join(f.dir, 'synthetic.mp4'), '-an', '-c:v', 'libvpx-vp9', '-threads', '1', '-deadline', 'realtime', target], new AbortController().signal, 65536);
+  await runProcess(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', join(f.dir, 'synthetic.mp4'), '-an', '-c:v', 'libvpx-vp9', '-threads', '1', '-deadline', 'realtime', target], new AbortController().signal, 65536);
   const ref = await offer(f.app, await readFile(target), 'video/webm');
   assert.equal(ref.info.kind, 'video');
   const p = await f.app.prepare({ sessionId: 'session-a', mediaRef: ref.mediaRef, atSeconds: 2 });
