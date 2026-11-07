@@ -8,9 +8,10 @@ import { createReadStream } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
+import { ProxyAgent } from 'undici';
 import manifest from '../vendor/sensevoice.json' with { type: 'json' };
 import type { AudioEvidence, AudioSegment } from './audio-types.ts';
-import { VisionError } from './types.ts';
+import { VisionError, resourceProxyOf } from './types.ts';
 
 type Asset = { name: string; url: string; bytes: number; sha256: string };
 type ResourceManifest = { id: string; model: string; assets: Asset[] };
@@ -254,9 +255,11 @@ export class LocalSpeech {
   private running?: Promise<AudioEvidence>;
   private stopTask?: Promise<void>;
   private readonly version: string;
+  private readonly resourceProxyUrl: string;
   private expectedExecutable?: { bytes: number; sha256: string };
-  constructor(root: string, signal: AbortSignal, dependencies: Partial<LocalSpeechDependencies> = {}) {
+  constructor(root: string, signal: AbortSignal, dependencies: Partial<LocalSpeechDependencies> = {}, resourceProxyUrl = '') {
     this.root = resolve(root);
+    this.resourceProxyUrl = resourceProxyOf(resourceProxyUrl);
     this.deps = { manifest, fetch: globalThis.fetch, run: runSenseVoiceProcess, platform: `${process.platform}-${process.arch}`, ...dependencies };
     this.signal = AbortSignal.any([signal, this.abort.signal]);
     this.version = join(this.root, this.deps.manifest.id);
@@ -336,6 +339,7 @@ export class LocalSpeech {
   }
   private async install() {
     let stage: string | undefined, backup: string | undefined;
+    let dispatcher: ProxyAgent | undefined;
     const signal = AbortSignal.any([this.signal, AbortSignal.timeout(15 * 60_000)]);
     this.ready = false; this.errorText = undefined; this.downloaded = 0;
     try {
@@ -345,9 +349,14 @@ export class LocalSpeech {
       catch (e) { if (signal.aborted || (e instanceof VisionError && e.code === 'unsafe_storage')) throw e; }
       await directory(this.root, true);
       stage = join(this.root, `.prepare-${randomUUID()}`); await mkdir(stage);
+      if (this.resourceProxyUrl) dispatcher = new ProxyAgent(this.resourceProxyUrl);
+      // One explicit route for every asset and redirect. Never retry via direct fetch.
+      const fetcher: typeof fetch = dispatcher
+        ? (input, options) => this.deps.fetch(input, { ...options, dispatcher } as RequestInit)
+        : this.deps.fetch;
       this.phase = 'downloading';
       for (const asset of this.deps.manifest.assets) {
-        await download(asset, join(stage, asset.name), signal, this.deps.fetch, n => { this.downloaded += n; });
+        await download(asset, join(stage, asset.name), signal, fetcher, n => { this.downloaded += n; });
       }
       this.phase = 'verifying'; check(signal);
       const executable = senseVoiceExecutable(await readFile(join(stage, 'runtime.zip')));
@@ -367,7 +376,10 @@ export class LocalSpeech {
       const safe = signal.aborted ? cancelled() : e instanceof VisionError ? e : err('local_download_failed', '本地语音资源准备失败，请稍后重试。');
       this.errorText = safe.message; throw safe;
     } finally {
-      try { if (stage) await this.removeOwned(stage); if (backup) await this.removeOwned(backup); }
+      try {
+        try { await dispatcher?.destroy(); }
+        finally { if (stage) await this.removeOwned(stage); if (backup) await this.removeOwned(backup); }
+      }
       catch { this.ready = false; this.phase = this.signal.aborted ? 'stopped' : 'error'; this.errorText = '本地语音临时资源未能清理。'; throw err('cleanup_failed', this.errorText); }
     }
   }

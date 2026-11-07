@@ -69,7 +69,7 @@ export class AudioEngine {
     this.connection = connection;
     this.settings = { ...audioDefaults, ...settings };
     this.signal = AbortSignal.any([signal, this.controller.signal]);
-    this.adapters = { local: adapters.local ?? new LocalSpeech(root, this.signal),
+    this.adapters = { local: adapters.local ?? new LocalSpeech(root, this.signal, {}, this.settings.resourceProxyUrl),
       transcribe: adapters.transcribe ?? transcribeCloud, understand: adapters.understand ?? understandCloud, music: adapters.music ?? analyzeMusic };
   }
   async start() { await this.adapters.local.start(); }

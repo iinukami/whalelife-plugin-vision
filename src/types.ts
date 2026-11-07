@@ -89,6 +89,15 @@ export function numberIn(value: unknown, min: number, max: number, name: string)
     fail('invalid_input', `${name} 超出允许范围。`);
   return value;
 }
+export function resourceProxyOf(value: unknown): string {
+  if (value === '') return '';
+  try {
+    if (typeof value !== 'string' || value.length > 500 || !/^https?:\/\/[^\s/?#@\\]+\/?$/i.test(value)) throw Error();
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw Error();
+    return url.href;
+  } catch { fail('invalid_config', '资源代理地址无效，仅支持不含凭据的 HTTP/HTTPS 根地址。'); }
+}
 export function configOf(value: unknown): Config {
   const o = object(value);
   const result = { ...defaults };
@@ -112,6 +121,7 @@ export function configOf(value: unknown): Config {
         next[key] = a[key].trim();
       }
     }
+    if (a.resourceProxyUrl !== undefined) next.resourceProxyUrl = resourceProxyOf(a.resourceProxyUrl);
     result.audio = next;
   }
   // Legacy decoder paths are deliberately ignored; saved media limits remain valid.

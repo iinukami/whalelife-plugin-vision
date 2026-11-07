@@ -63,5 +63,7 @@ export async function extractAudio(entry: StoredMedia, range: ReturnType<typeof 
   // Encoders can finish one sample beyond the requested duration; do not report coverage outside it.
   const bounded = pcm.subarray(0, Math.min(pcm.length, Math.ceil(seconds * 16000) * 2));
   const toSeconds = Math.min(range.toSeconds, range.fromSeconds + bounded.length / 32000);
-  return { wav: pcmWav(bounded), coverage: { ...range, toSeconds, nextFromSeconds: toSeconds < entry.info.durationSeconds! ? toSeconds : null } };
+  // Container duration is rounded to microseconds; do not offer an unprocessable fraction of one sample.
+  const hasRemainingSamples = entry.info.durationSeconds! - toSeconds > 1 / 16000 + 0.000001;
+  return { wav: pcmWav(bounded), coverage: { ...range, toSeconds, nextFromSeconds: hasRemainingSamples ? toSeconds : null } };
 }

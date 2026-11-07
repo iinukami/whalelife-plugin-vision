@@ -17,6 +17,8 @@ export const settingsPage = `<!doctype html><html lang="zh-CN"><meta charset="ut
 <small class="muted">选择支持 Qwen-Omni 音频输入的对话或自定义模型配置，使用 OpenAI 兼容协议和兼容 API 根地址。普通文字模型不能直接听音频；本地声音标签也不等于完整环境声理解。</small>
 </section>
 <section class="card"><h2>本地语音资源</h2><strong id="localState">正在检查…</strong><p id="localDetail" class="muted"></p>
+<label class="row">资源下载代理<input name="resourceProxyUrl" type="url" maxlength="500" placeholder="留空直连，例如 http://127.0.0.1:7890"></label>
+<small class="muted">仅用于下载本地语音资源，支持不含用户名密码的 HTTP/HTTPS 代理。修改后先保存并重载，再准备资源；不会自动切换连接。</small>
 <progress id="download" max="1" value="0" hidden></progress><p id="downloadText" class="muted"></p>
 <div class="actions"><button type="button" id="prepare" disabled>一键准备本地能力</button><span id="prepareNotice" class="notice" role="status"></span></div>
 <p class="muted">只在你点击时下载固定版本的 CPU 运行组件和识别模型，准备完后她可以自主调用。资源保存在本插件内；同一时间只运行一个本地声音分析任务，未准备好不自动切到云端。</p>
@@ -54,7 +56,7 @@ if(!initialized){
 async function refresh(){if(loading)return;loading=true;try{const response=await fetch('/plugins/vision/state');if(!response.ok)throw Error();render(await response.json());}catch{text('#state','无法读取插件状态');}finally{loading=false;}}
 await refresh();const timer=setInterval(()=>{if(!document.hidden)void refresh();},2000);addEventListener('pagehide',()=>clearInterval(timer),{once:true});
 form.addEventListener('submit',async event=>{event.preventDefault();const button=document.querySelector('#save');button.disabled=true;try{
-const fields=Object.fromEntries(new FormData(form)),config={ttlSeconds:Number(fields.ttlSeconds),maxMediaMiB:Number(fields.maxMediaMiB),maxTotalMiB:Number(fields.maxTotalMiB),audio:{speechBackend:fields.speechBackend,speechModelId:fields.speechModelId,understandingModelId:fields.understandingModelId,musicBackend:fields.musicBackend}};
+const fields=Object.fromEntries(new FormData(form)),config={ttlSeconds:Number(fields.ttlSeconds),maxMediaMiB:Number(fields.maxMediaMiB),maxTotalMiB:Number(fields.maxTotalMiB),audio:{speechBackend:fields.speechBackend,speechModelId:fields.speechModelId,understandingModelId:fields.understandingModelId,musicBackend:fields.musicBackend,resourceProxyUrl:fields.resourceProxyUrl}};
 const response=await fetch('/plugins/vision/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config,revision})});const result=await response.json();if(!response.ok||!result.ok)throw Error(result.error||'保存失败');const state=await(await fetch('/plugins/vision/state')).json();revision=state.revision;notice.textContent='设置已保存。请在插件管理中重载视听插件后使用新设置。';
 }catch(error){notice.textContent=error.message;}finally{button.disabled=false;}});
 prepare.addEventListener('click',async()=>{prepare.disabled=true;text('#prepareNotice','正在提交准备请求…');try{const response=await fetch('/plugins/vision/audio/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const data=await response.json();if(!response.ok||!data.ok)throw Error(data.error||'无法开始准备');text('#prepareNotice','已开始，请查看进度与结果。');}catch(error){text('#prepareNotice',error.message);}finally{await refresh();}});

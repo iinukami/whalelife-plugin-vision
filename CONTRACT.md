@@ -57,11 +57,14 @@
   "speechBackend": "local",
   "speechModelId": "",
   "understandingModelId": "",
-  "musicBackend": "local"
+  "musicBackend": "local",
+  "resourceProxyUrl": ""
 }
 ```
 
 语音和音乐用途分别显式选择 local/cloud，默认 local；复杂 `sound` 固定调用云端理解。无自动回退、隐式模型选择或额外人格/会话。选中模型的连接由公开 `ctx.models.connection(id)` 读取，不把密钥写入插件配置、状态或日志。
+
+`resourceProxyUrl` 仅供显式本地资源准备使用，默认空字符串（直连）；只接受不含凭据、查询、片段或额外路径的 HTTP/HTTPS 代理地址。不改变固定资源来源、大小和摘要，不自动直连回退。代理连接随准备任务结束、失败或取消关闭；云端模型请求仍使用各自所选连接的代理。
 
 云端语音须 `stt` 类型、`openai-compatible` 协议，发送 `/audio/transcriptions` multipart WAV。云端理解须 `chat|custom` 类型、同一协议，并实际支持当前 `/chat/completions` 的 Qwen-Omni 兼容 `input_audio` WAV、SSE、文字输出。连接能力不由名称保证；错误类型、协议、不完整输出或提供商失败均明确失败。沿用选中连接的超时及 HTTP/HTTPS 代理，不自动重试。提供商实际返回的已知用量可作为 evidence usage 返回；插件自行调用的声音请求不会自动成为当前主模型的用量记录。
 

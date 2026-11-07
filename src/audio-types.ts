@@ -9,9 +9,10 @@ export type AudioSettings = {
   speechModelId: string;
   understandingModelId: string;
   musicBackend: 'local' | 'cloud';
+  resourceProxyUrl: string;
 };
 export const audioDefaults: AudioSettings = {
-  speechBackend: 'local', speechModelId: '', understandingModelId: '', musicBackend: 'local',
+  speechBackend: 'local', speechModelId: '', understandingModelId: '', musicBackend: 'local', resourceProxyUrl: '',
 };
 /** Adapter times are relative to the supplied clip. The coordinator adds the media offset once. */
 export type AudioSegment = { startSeconds: number; endSeconds: number; text: string };

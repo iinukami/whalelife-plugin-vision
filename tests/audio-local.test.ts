@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { ProxyAgent } from 'undici';
 import { LocalSpeech, parseSenseVoiceSrt, runSenseVoiceProcess, senseVoiceExecutable, type LocalSpeechDependencies } from '../src/audio-local.ts';
 import { temporaryDirectory } from './temporary-directory.ts';
 
@@ -156,6 +157,76 @@ test('download redirects only reach fixed public HTTPS hosts; network failures d
     fetch: async () => { throw Error('secret API_KEY private C:/media.wav'); } });
   tmp.cleanup.push(() => broken.stop()); await assert.rejects(broken.prepare(), e => !String(e).includes('API_KEY'));
   assert(!JSON.stringify(broken.status()).includes('private'));
+});
+
+test('resource proxy accepts only credential-free HTTP(S) root addresses and never exposes rejected values', async t => {
+  const tmp = await temporaryDirectory(t), f = fixture();
+  for (const value of ['socks5://127.0.0.1:7890', 'http://user:secret@proxy.example', 'http://@proxy.example',
+    'http://proxy.example/path', 'http://proxy.example/a/..', 'http://proxy.example/?token=secret', 'http://proxy.example/?',
+    'http://proxy.example/#private', 'http://proxy.example/#', 'http://proxy.example\\private', ' http://proxy.example',
+    'http://proxy.example\n', 'http://' + 'x'.repeat(500), 'not a URL'])
+    assert.throws(() => new LocalSpeech(tmp.dir, new AbortController().signal, f.dependencies, value),
+      e => (e as { code: string }).code === 'invalid_config' && !String(e).includes(value) && !String(e).includes('secret'));
+  for (const value of ['', 'http://127.0.0.1:7890', 'https://proxy.example/', 'http://[::1]:7890/']) {
+    const local = new LocalSpeech(join(tmp.dir, String(value.length)), new AbortController().signal, f.dependencies, value);
+    tmp.cleanup.push(() => local.stop()); await local.start(); assert.equal(local.status().phase, 'missing');
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('explicit resource proxy routes every asset and redirect and is destroyed before preparation resolves', async t => {
+  const tmp = await temporaryDirectory(t), f = fixture(), urls: string[] = [];
+  let agent: ProxyAgent | undefined, destroyCalls = 0, destroyed = false;
+  const local = new LocalSpeech(tmp.dir, new AbortController().signal, { ...f.dependencies,
+    fetch: async (input, options) => {
+      const route = (options as RequestInit & { dispatcher?: ProxyAgent }).dispatcher;
+      assert(route instanceof ProxyAgent);
+      if (!agent) {
+        agent = route; const destroy = route.destroy.bind(route);
+        t.mock.method(route, 'destroy', async () => { destroyCalls++; await new Promise<void>(done => setImmediate(done)); await new Promise<void>(done => destroy(null, done)); destroyed = true; });
+      }
+      assert.equal(route, agent); urls.push(String(input));
+      if (urls.length === 1) return new Response(null, { status: 302, headers: { location: 'https://release-assets.githubusercontent.com/synthetic/runtime.zip' } });
+      return f.dependencies.fetch(input, options);
+    } }, 'http://127.0.0.1:7890');
+  tmp.cleanup.push(() => local.stop()); await local.start(); assert.equal(urls.length, 0);
+  await local.prepare(); assert.equal(local.status().ready, true); assert.equal(destroyCalls, 1); assert.equal(destroyed, true);
+  assert.deepEqual(urls, [f.manifest.assets[0].url, 'https://release-assets.githubusercontent.com/synthetic/runtime.zip', f.manifest.assets[1].url, f.manifest.assets[2].url]);
+  assert(!JSON.stringify(local.status()).includes('7890')); await local.prepare(); assert.equal(destroyCalls, 1);
+});
+
+test('proxy failure never retries direct and cancellation waits for dispatcher destruction', async t => {
+  const tmp = await temporaryDirectory(t);
+  for (const mode of ['failure', 'cancel']) {
+    const root = join(tmp.dir, mode), f = fixture(); let calls = 0, destroyed = false;
+    let entered!: () => void; const started = new Promise<void>(done => { entered = done; });
+    const local = new LocalSpeech(root, new AbortController().signal, { ...f.dependencies,
+      fetch: async (_input, options) => {
+        calls++; const route = (options as RequestInit & { dispatcher?: ProxyAgent }).dispatcher;
+        assert(route instanceof ProxyAgent); const destroy = route.destroy.bind(route);
+        t.mock.method(route, 'destroy', async () => { await new Promise<void>(done => setImmediate(done)); await new Promise<void>(done => destroy(null, done)); destroyed = true; });
+        entered();
+        if (mode === 'failure') throw Error('private proxy http://127.0.0.1:7890 connection failed');
+        return new Promise<Response>((_resolve, reject) => {
+          options!.signal!.addEventListener('abort', () => reject(Error('private proxy cancellation')), { once: true });
+        });
+      } }, 'http://127.0.0.1:7890');
+    tmp.cleanup.push(() => local.stop());
+    const work = local.prepare(), rejection = assert.rejects(work, { code: mode === 'failure' ? 'local_download_failed' : 'cancelled' });
+    await started; if (mode === 'cancel') await local.stop(); await rejection;
+    assert.equal(calls, 1); assert.equal(destroyed, true); assert.deepEqual(await readdir(root), []);
+    assert(!JSON.stringify(local.status()).includes('7890')); assert(!JSON.stringify(local.status()).includes('private'));
+  }
+});
+
+test('empty resource proxy preserves the direct fetch path', async t => {
+  const tmp = await temporaryDirectory(t), f = fixture();
+  const local = new LocalSpeech(tmp.dir, new AbortController().signal, { ...f.dependencies,
+    fetch: async (input, options) => {
+      assert.equal((options as RequestInit & { dispatcher?: unknown }).dispatcher, undefined);
+      return f.dependencies.fetch(input, options);
+    } });
+  tmp.cleanup.push(() => local.stop()); await local.prepare(); assert.equal(f.calls.length, 3);
 });
 
 test('stop cancels preparation and cleans owned stage without touching existing unrelated files', async t => {

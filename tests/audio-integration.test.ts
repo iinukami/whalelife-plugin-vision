@@ -60,6 +60,9 @@ test('pure audio input is decoded to exact mono PCM WAV, only selected range is 
   await f.app.release({ sessionId: 'session-a', mediaRef: ref.mediaRef });
   assert.deepEqual(await readdir(f.app.store.root), []);
   await assert.rejects(offer(f.app, wav(), 'audio/mpeg'), { code: 'mime_mismatch' });
+  const fractional = await offer(f.app, wav(13.7093125), 'audio/wav');
+  const end = await f.app.understand({ sessionId: 'session-a', mediaRef: fractional.mediaRef });
+  assert.equal(end.audio.coverage!.nextFromSeconds, null, 'rounded container tail smaller than one sample is not another page');
 });
 
 test('supported audio containers are detected and an audio MIME cannot hide a video track', async t => {
@@ -186,6 +189,10 @@ test('audio settings default locally, retain explicit model selections, and reje
     { ...audioDefaults, speechBackend: 'cloud', speechModelId: 'stt', understandingModelId: 'omni' });
   for (const audio of [{ speechBackend: 'auto' }, { musicBackend: 'auto' }, { speechModelId: 'bad\nvalue' }, { understandingModelId: 'x'.repeat(201) }])
     assert.throws(() => configOf({ audio }), { code: 'invalid_config' });
+  assert.equal(configOf({ audio: { resourceProxyUrl: 'http://127.0.0.1:7890' } }).audio!.resourceProxyUrl, 'http://127.0.0.1:7890/');
+  for (const resourceProxyUrl of ['socks5://localhost:1080', 'http://user:secret@localhost:7890', 'http://localhost:7890/path',
+    'http://localhost:7890/?x=1', 'http://localhost:7890/?', 'http://localhost:7890/#', 'http://localhost:7890/a/..', 'x'.repeat(501)])
+    assert.throws(() => configOf({ audio: { resourceProxyUrl } }), { code: 'invalid_config' });
 });
 
 test('default-length music evidence keeps real candidates and uncertainty when details are bounded', async t => {
