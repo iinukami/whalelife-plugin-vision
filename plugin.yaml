@@ -1,5 +1,5 @@
 id: vision
-name: 视觉
-version: 0.1.1
-description: 跨插件图片与视频准备、按需抽帧及高清补看；主模型查看需宿主多模态接口
+name: 视听理解
+version: 0.2.0
+description: 图片、视频与音频的按需理解；画面与声音共用媒体时间轴，沿用当前主模型
 apiVersion: "1.0.0"

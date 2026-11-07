@@ -1,50 +1,97 @@
 # vision 服务契约
 
-服务版本 1.0.0；插件版本 0.1.1。状态：媒体准备服务可用；具备 `ctx.tools.registerMultimodal` 的宿主可使用原生视觉工具。公开类型见 `src/types.ts`。视频组件随 Windows x64 包内置，路径不再是用户配置。
+插件版本 0.2.0，插件 ID 保持 `vision`。原有视觉服务版本 `1.0.0` 继续兼容；新增视听扩展 `audiovisualApiVersion:"1.0.0"` 和 `understand()`。公开类型见 `src/types.ts` 与 `src/audio-types.ts`。旧 `prepare()` / `vision_view` 不包含声音，保留 `audioIncluded:false`。
 
-## 依赖与职责
+## 依赖、授权和来源
 
-消费者声明 `optionalDepends: [vision]`，通过 `ctx.optional('vision', binding => ...)` 绑定；旧宿主只在明确声明必需依赖时用 `depends`/`ctx.get`。不得在无声明的情况下读取服务或其他插件的 data。可选视觉停用后，平台的文字、原有识图、语音和登录保持原样。
+消费者声明 `optionalDepends: [vision]`，通过 `ctx.optional('vision', binding => ...)` 绑定，在绑定生命周期内使用服务。确实要求必需依赖时才声明 `depends` 并使用 `ctx.get`。不得无声明取服务、读取其他插件 data，或替代来源插件登录、下载、授权、收藏与外发。
 
-消费者固定实际会话，在可信后端取得原始媒体。`sessionId` 必须来自当前可信工具上下文或该条入站消息绑定，不由模型随意指定，也不在中途重新读全局当前会话。本服务按 ID 隔离引用；它不能独立证明可信调用插件提交的 ID 是否真实，因此取图插件承担会话真实性与授权责任。
+`sessionId` 必须来自当前可信工具上下文或已固定的入站消息绑定，不能由模型随意指定，也不能中途重读全局当前会话。服务隔离引用，但无法独立证明可信调用者提供的 ID 是否真实；来源插件承担会话真实性和媒体获取权限责任。停用本插件不应破坏来源插件的文字、原有识图、语音或登录。
 
-## 方法
+## 方法与兼容
 
-每个异步方法可传 `{signal?: AbortSignal}`，调用方应组合绑定信号与本次请求信号。
+异步方法接受可选 `{signal?: AbortSignal}`，调用方组合绑定信号与本次请求信号。消费者调用新方法前检测扩展版本及函数存在性；旧服务仍可仅作视觉准备。
 
-| 方法 | 参数 | 结果 |
+| 方法 | 输入 | 返回与语义 |
 | --- | --- | --- |
-| `status()` | 无 | 准备状态、主模型查看缺口、容量、处理数；没有图片/引用列表/私有路径/模型连接 |
-| `offerMedia(input, options?)` | `{sessionId, mime, base64}` | `{mediaRef, expiresAt, info}`，固定 MIME、宽高、类型、时长等。仅短期暂存，不收藏，不调用模型 |
-| `describe(input, options?)` | `{sessionId, mediaRef}` | 同样的引用和元信息，不带正文或原图 |
-| `prepare(input, options?)` | `{sessionId, mediaRef, fromSeconds?, toSeconds?, atSeconds?, detail?, layout?, crop?}` | `PreparedMedia`，可信服务使用的图片字节及时间/范围/尺寸，**不是模型工具结果** |
-| `release(input, options?)` | `{sessionId, mediaRef}` | `{released:true}`，立即禁止新读取；在途读取丢弃结果并释放其文件 |
+| `status()` | 无 | 服务/扩展版本、解码和声音资源状态、容量/处理数；无媒体正文、引用列表、凭据或本机路径 |
+| `offerMedia(input, options?)` | `{sessionId,mime,base64}` | `{mediaRef,expiresAt,info}`；检查并短期暂存，不调用模型 |
+| `describe(input, options?)` | `{sessionId,mediaRef}` | 引用与媒体元信息，无正文 |
+| `prepare(input, options?)` | `PrepareInput` | 旧 `PreparedMedia`，仅图片字节及视觉采样信息；不是普通模型 JSON 工具结果 |
+| `understand(input, options?)` | `UnderstandInput` | `UnderstoodMedia`：所选画面和按用途产生的声音文字证据，支持部分失败 |
+| `release(input, options?)` | `{sessionId,mediaRef}` | `{released:true}`；立即禁止新读取，在途读取丢弃结果 |
 
-只接收标准 base64 原始字节，不接受 URL、data URL、文件路径、平台 Cookies 或下载密钥。支持 `image/jpeg`、`image/png`、`image/webp`、`image/gif`、`video/mp4`、`video/webm`，声明类型与内容不一致时拒绝。EBML 容器使用受限 Matroska/WebM 解复用器，文件扩展名不作为可信判断。
+仅接收标准 base64 原始字节，不接受 URL、data URL、文件路径、Cookies 或下载密钥。支持 `image/jpeg`、`image/png`、`image/webp`、`image/gif`、`video/mp4`、`video/webm`，以及 `audio/wav`、`audio/mpeg`、`audio/flac`、`audio/ogg`、`audio/mp4`、`audio/webm`；声明与内容不符拒绝。音频元信息 `kind:"audio"`、宽高为 0、`frameCount:null`；`hasAudio` 表明是否有音轨。音频限 8–192 kHz、1–8 声道和有效时长，视频/音频最长 3600 秒。实际可交入大小仍受容量限制。
 
-`detail` 为 `overview` 或 `detail`；`layout` 为 `frames`（默认）或 `sheet`。`crop` 的 x/y/width/height 都是相对已转正画面的 0–1 比例，不能越界。指定时刻与时间段互斥；静态图片不接受时间参数。时间段是 `[fromSeconds,toSeconds)`，不得超过媒体结尾或 60 秒；未指定时从 0 开始看最多 30 秒。指定时刻必须早于媒体结尾。
+`PrepareInput` 包含 `sessionId`、`mediaRef`，以及可选 `fromSeconds`、`toSeconds`、`atSeconds`、`detail`、`layout`、`crop`。`detail` 为 `overview|detail`，`layout` 为 `frames|sheet`，默认概览独立图片。裁剪 x/y/width/height 使用转正画面的 0–1 比例，不能越界。
 
-`images` 每项包含 MIME、base64、实际尺寸、各画面的编号/时间/拼图区域。`coverage` 记录请求范围、下一段位置、采样时间网格、候选省略数和 `audioIncluded:false`。时间为采样请求位置，不能当作逐帧精确事件证据。`timelineComplete:false` 明确未提供逐帧完整观看。消费者自己管理已查看的片段；未查看的时间段不会被服务默认为已看。
+时间段为 `[fromSeconds,toSeconds)`；默认从 0 起处理最多 30 秒，单次最大 60 秒，不越过结尾。`atSeconds` 与时间段互斥，且早于结尾；静态图不接受时间参数。图片返回实际尺寸、编号、采样时间及拼图区域。`coverage` 记录范围、下一段、采样网格及省略数，`timelineComplete:false`；采样位置不能当作逐帧精确事件时间。GIF/WebP 按帧延时选帧，缺失延时时声明估算。
 
-GIF/WebP 使用帧延时选择对应页面，缺失延时时声明估算。原字节在引用有效期内保持完整，处理图不覆盖原图；服务不提供永久原图仓库或发送成功回执。
+## 视听理解输入和时间
 
-## 生命周期、资源和错误
+`UnderstandInput` 在原参数上增加：
 
-- 默认 TTL 1800 秒，允许 30–7200 秒。默认单份 64 MiB、总量 256 MiB，最高分别 64/512 MiB。单份上限同时考虑跨进程 base64 传输的内存开销；图片仍有 25 MiB 的固定上限。容量满时拒绝新请求，不静默淘汰别人的媒体。
-- 每会话最多 16 引用，总计最多 64；最多 2 个同时进行的调用，超出返回 `busy`。单操作 120 秒，单次视频解码 30 秒；文件、子进程和输出大小均受限。
-- 解码只访问本插件暂存文件。FFmpeg 使用固定参数数组、无 shell、禁 stdin、隐藏窗口，并限制输入协议/格式。原始 stderr 不回传或日志化；取消只终止本次拥有的解码子进程。
-- `status().decoder` 返回 `{ready,source:'bundled',version,problem}`，不返回本机路径；`videoDecoder` 为 `bundled` 或 `unavailable`。启动验证固定程序摘要和可运行性，缺失/损坏只关闭视频处理，图片/GIF 不依赖这些程序。旧配置中的 `ffmpegPath` / `ffprobePath` 忽略，不执行它们，也不退回系统 PATH。
-- 过期、释放、停用或跨会话读取统一返回 `media_unavailable`，无法通过错误区分别人的引用。旧实例服务由宿主撤销；重载后引用不恢复。
-- `quota`/`busy` 表示容量/并发限制；`unsupported_media`/`mime_mismatch`/`decode_failed` 表示输入问题；`decoder_unavailable`/`decoder_timeout` 表示视频解码问题；`invalid_input` 表示范围/参数错误；`output_limit` 表示返回图片太大；`cancelled`/`stopped` 表示生命周期终止。
-- 所有异常只返回固定错误码和简短说明。媒体正文、base64、路径和用户给出的取消原因不被写入错误。不会调用模型或产生平台副作用，失败不自动重试。
+- `visual?: boolean`：图片/视频默认 true，纯音频默认 false。
+- `audio?: ('speech'|'sound'|'rhythm'|'melody'|'chords'|'structure')[]`：未指定时，有音轨且不是指定时刻查看则默认 `['speech']`，其他情况默认空；显式 `[]` 表示只看。重复任务去重。
+- `atSeconds` 不与声音任务同时使用；看听同一段应使用 from/to。全部关闭会拒绝。请求声音但没有音轨时返回 `no_audio`，不伪造无声转写。
 
-## 最小接入示例
+画面与声音在一次引用使用期间取同一份原始媒体，避免两套来源缓存或错配时间轴。音频解码为本次范围内的 16 kHz 单声道 PCM16 WAV。`audio.coverage` 报告实际解码覆盖，不能把请求结尾当作已取得的音频。后端只收到此片段。
+
+`UnderstoodMedia.status` 为 `completed|partial|failed`；`visual` 是可选的旧 `PreparedMedia`，视觉失败另有安全错误信息；`audio.status` 为 `completed|partial|failed|not_requested|no_audio`。每项声音结果含 `task`、`backend`、`status`，成功给 `evidence`，失败给固定错误码和说明。单项失败不冒充全体成功。
+
+`AudioEvidence` 含 `text`、`timing:'segment'|'clip'`、`warnings`，可含 `segments`、`events`、`details`、`usage`。下列时间含义不得混用：
+
+- 画面时间、返回覆盖范围、证据**顶层** `segments[].startSeconds/endSeconds` 均为源媒体秒数；协调层已加一次片段起点。
+- 本地音乐 `details.timeOrigin:"clip_start"` 内音符、和弦、变化点和分段时间，以及云端分析正文中的时间，相对本片段起点，不是源媒体时间。
+- 本地语音时间来自 VAD 分段，不是逐字对齐；云端未返回可信时间时只有 clip 级证据。云端声音/音乐描述不能推导精确时间。
+- 分数、候选和事件标签不是校准概率。超长证据会截断并声明不完整，必要时移除明细与分段；调用方应缩小范围补听，不自行补造细节。
+
+本地节奏、混合音高、三和弦模板及局部变化点都是有限估计，无声部分离、完整曲谱或整曲段落标签。具体能力边界见 README 的用途表。
+
+## 后端与资源
+
+插件配置 `audio` 为：
+
+```json
+{
+  "speechBackend": "local",
+  "speechModelId": "",
+  "understandingModelId": "",
+  "musicBackend": "local"
+}
+```
+
+语音和音乐用途分别显式选择 local/cloud，默认 local；复杂 `sound` 固定调用云端理解。无自动回退、隐式模型选择或额外人格/会话。选中模型的连接由公开 `ctx.models.connection(id)` 读取，不把密钥写入插件配置、状态或日志。
+
+云端语音须 `stt` 类型、`openai-compatible` 协议，发送 `/audio/transcriptions` multipart WAV。云端理解须 `chat|custom` 类型、同一协议，并实际支持当前 `/chat/completions` 的 Qwen-Omni 兼容 `input_audio` WAV、SSE、文字输出。连接能力不由名称保证；错误类型、协议、不完整输出或提供商失败均明确失败。沿用选中连接的超时及 HTTP/HTTPS 代理，不自动重试。提供商实际返回的已知用量可作为 evidence usage 返回；插件自行调用的声音请求不会自动成为当前主模型的用量记录。
+
+本地语音限 Windows x64，固定 8 CPU 线程。`start()` 仅核验资源，工具不准备资源；设置页显式按钮调用资源准备接口，固定来源、版本、大小及 SHA-256，总下载量 `260887284` 字节。页面只见 ready/phase/downloadBytes/totalBytes 等安全状态。重复准备合并，校验后原子安装；停用取消，失败可重试，不接受自定义路径、命令或 URL。本地声音任务共用串行队列（在途/等待最多 4 项）；音乐无需权重。模型文件保留，识别 WAV 用后清理。
+
+## 主模型工具、回执和持久化
+
+`vision_status` 提供状态。具备公开 `ctx.tools.registerMultimodal` 时注册旧 `vision_view` 与新 `media_understand`；旧宿主不回退为含 base64 的普通 JSON 工具。模型参数没有 `sessionId`，会话固定为可信 `ToolSession.id`。来源插件通常只需提供引用，由本插件工具负责准备与呈现，调用便利不要求来源插件复制整个工具流程。
+
+图片转换为 `{type:'image',mimeType:'image/jpeg',data:Uint8Array,detail}`；声音作为附有来源、时间和限制的文字证据交给当前主模型，**没有原始音频块**。所有资料明确标为外部证据，不是指令或授权。视觉仍使用当前模型，不暗中另选视觉模型；`mainModelViewing:true` 只证明宿主 API 存在，不证明该模型实际支持图片。
+
+旧回执为 `prepare_visual_input`；新回执为 `prepare_audiovisual_input`，只记录动作、结果、类型、图片数量、范围及各声音任务后端/状态/错误码。没有原图、原声、引用、完整转写或描述；准备完成不证明模型已经理解或来源平台已经发送。
+
+临时工具原始资料与后续复制参数按宿主契约隔离。**普通 Web、频道及普通 sessions 调用的最终 assistant 回答仍正常持久化**，可包括实际引用内容；不得承诺最终回答全不留存。显式技术 transient 入口的输入与最终输出规则以现行主干公开契约为准。宿主管理主模型协议与实际图片请求用量。
+
+## 限制、生命周期与错误
+
+- TTL 默认 1800 秒，可设 30–7200 秒；默认单份 64 MiB、总量 256 MiB，上限分别 64/512 MiB。图片仍限 25 MiB/4000 万像素，动画最多 2000 帧。每会话 16 引用、全局 64，容量满拒绝，不静默淘汰其他媒体。
+- 服务最多 2 个同时调用；旧操作最多 120 秒，视听理解最多 240 秒，单次解码 30 秒，本地识别 180 秒，本地音乐 45 秒。输出有独立容量限制，插件单次图片最多 8 张/8 MiB，单张不超过 2 MiB；宿主当前单图 4 MiB、每轮累计 16 张/16 MiB。
+- 解码仅用插件暂存文件、固定参数和内置程序，无 shell/系统 PATH，禁 stdin、隐藏窗口并限制协议/格式。原始 stderr、路径、凭据、媒体正文和取消原因不回显。旧自定义解码路径忽略。
+- 取消、释放、过期和停用会终止所属子进程/工作线程或丢弃迟到结果，清理自有媒体；重载不恢复引用。启动清理确切自有的遗留媒体和识别片段，遇符号链接/未知内容拒绝危险清理。权重资源不会随单次任务删除。
+- `media_unavailable` 统一覆盖过期、释放、停用及跨会话访问；`busy`/`audio_busy`/`quota` 表示资源限制。输入、解码、模型连接、资源准备、推理和输出错误均用固定安全码区分。部分声音失败可保留画面或其他成功任务。
+- `prepare()` 与 `offerMedia()` 本身不调用模型；`understand()` 只按所选任务和后端运行，可能调用选定云端服务。没有收藏、平台发送或其他平台副作用。
+
+## 最小来源接入
 
 ```ts
 ctx.optional<VisionService>('vision', binding => {
   if (!binding) return;
-  // 使用者自己的工具/入站处理器在 binding.effect 范围中注册和释放。
-  // trustedSessionId 来自已固定的实际会话；originalBytes 来自平台合法取得的原文件。
+  // 自己的处理器注册/释放须跟随 binding 生命周期。
   async function offer(trustedSessionId, originalBytes, mime, requestSignal) {
     return binding.service.offerMedia({
       sessionId: trustedSessionId, mime, base64: originalBytes.toString('base64'),
@@ -53,16 +100,4 @@ ctx.optional<VisionService>('vision', binding => {
 });
 ```
 
-不要把 `prepare()` 注册为普通模型工具，也不要将其图片结果 JSON.stringify 后作为文字提交给模型。
-
-## 主模型工具
-
-`vision_status` 始终提供服务状态。仅在检测到公开 `ctx.tools.registerMultimodal` 时注册 `vision_view`：模型参数是 `PrepareInput` 去掉 `sessionId`，会话 ID 取自可信 `ToolSession.id`，模型传入的额外 `sessionId` 被忽略。使用者以同一会话的来源引用调用工具，获得原生文字/图片内容块。
-
-图片转换为 `{type:'image',mimeType:'image/jpeg',data:Uint8Array,detail:'auto'|'high'}`，按宿主通用多模态契约传入当前模型。工具说明包括时间范围、编号、采样限制和未包含声音；图片不经过另一个模型代看。主干负责模型协议、临时持久化隔离和实际请求用量。
-
-持久回执只记录 `prepare_visual_input` 动作、类型、图片数量、时间范围和 `prepared`/`failed`，不存原图、临时引用、描述或最终回复。`prepared` 表示准备了视觉输入，不伪称模型已经理解或平台发送成功。`mainModelViewing:true` 只证明宿主接口可用，不证明任意所选模型支持图片。
-
-当前宿主上限为单图 4 MiB、每轮累计 16 张/16 MiB；本插件单次最多 8 张/8 MiB，独立图片不超过 2 MiB。多次补看仍受宿主本轮累计限制，消费者需要合理分段。旧宿主不注册 `vision_view`，不回退到普通/临时 JSON 工具。
-
-需求、兼容和隐私验收见 [CORE-REQUEST.md](CORE-REQUEST.md)。QQ、图库及其他来源插件由各自负责会话接入，本仓库不代改。
+不要把 `prepare()` / `understand()` 的含图服务返回值直接注册成普通 JSON 工具，也不要将 base64 JSON 当作视觉输入。来源与主干协作边界见 [CORE-REQUEST.md](CORE-REQUEST.md)。

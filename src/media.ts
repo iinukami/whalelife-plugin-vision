@@ -10,6 +10,7 @@ import { MAX_PIXELS, MAX_OUTPUT, MAX_FRAMES, MiB, fail, numberIn, cropOf,
   type MediaInfo, type PrepareInput, type PreparedMedia, type PreparedImage, type Crop } from './types.ts';
 import type { BundledDecoder } from './decoder.ts';
 import type { StoredMedia } from './store.ts';
+import { inspectAudio } from './audio-media.ts';
 
 const GRID_W = 64, GRID_H = 36, GRID_BYTES = GRID_W * GRID_H * 3;
 const IMAGE_OPTIONS = { limitInputPixels: MAX_PIXELS, failOn: 'warning' as const };
@@ -23,14 +24,18 @@ async function buffered(pipeline: Sharp, signal: AbortSignal): Promise<Buffer> {
   catch { signal.throwIfAborted(); fail('decode_failed', '图片无法解码或处理超时。'); }
   finally { signal.removeEventListener('abort', abort); pipeline.destroy(); }
 }
-function mimeOf(bytes: Buffer): string {
+function mimeOf(bytes: Buffer, requested: string): string {
   if (bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) return 'image/png';
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
   if (/^GIF8[79]a$/.test(bytes.subarray(0, 6).toString('ascii'))) return 'image/gif';
   if (bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP') return 'image/webp';
-  if (bytes.subarray(4, 8).toString() === 'ftyp') return 'video/mp4';
-  if (bytes.subarray(0, 4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3]))) return 'video/webm';
-  fail('unsupported_media', '支持 JPEG、PNG、WebP、GIF，以及 MP4、WebM 视频。');
+  if (bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WAVE') return 'audio/wav';
+  if (bytes.subarray(0, 4).toString() === 'fLaC') return 'audio/flac';
+  if (bytes.subarray(0, 4).toString() === 'OggS') return 'audio/ogg';
+  if (bytes.subarray(0, 3).toString() === 'ID3' || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0 && (bytes[1] & 6) !== 0)) return 'audio/mpeg';
+  if (bytes.subarray(4, 8).toString() === 'ftyp') return requested === 'audio/mp4' ? 'audio/mp4' : 'video/mp4';
+  if (bytes.subarray(0, 4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3]))) return requested === 'audio/webm' ? 'audio/webm' : 'video/webm';
+  fail('unsupported_media', '支持常见图片、MP4/WebM 视频，以及 WAV/MP3/FLAC/OGG/M4A/WebM 音频。');
 }
 function checkPixels(w: number, h: number) {
   if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w * h > MAX_PIXELS || w > 16384 || h > 16384)
@@ -87,9 +92,10 @@ async function probe(path: string, mime: string, decoder: BundledDecoder, signal
 }
 export async function inspectMedia(bytes: Buffer, path: string, requestedMime: string, decoder: BundledDecoder, signal: AbortSignal): Promise<MediaInfo> {
   signal.throwIfAborted();
-  const mime = mimeOf(bytes);
+  const mime = mimeOf(bytes, requestedMime);
   if (mime !== requestedMime) fail('mime_mismatch', '声明的媒体类型与文件内容不一致。');
   if (mime.startsWith('video/')) return probe(path, mime, decoder, signal);
+  if (mime.startsWith('audio/')) return inspectAudio(path, mime, decoder, signal);
   if (bytes.length > 25 * MiB) fail('media_size', '图片或动图不得超过 25 MiB。');
   const meta = await imageMetadata(bytes);
   const expected = { 'image/png': 'png', 'image/jpeg': 'jpeg', 'image/gif': 'gif', 'image/webp': 'webp' }[mime];
@@ -185,6 +191,7 @@ async function renderFrame(frame: DecodedFrame, detail: string, crop: Crop | und
 }
 
 export async function prepareMedia(entry: StoredMedia, input: PrepareInput, decoder: BundledDecoder, signal: AbortSignal): Promise<PreparedMedia> {
+  if (entry.info.kind === 'audio') fail('no_visual', '该媒体只有声音，请使用统一视听入口。');
   const range = timeRange(input, entry.info);
   const detail = input.detail ?? (range.at === null ? 'overview' : 'detail');
   const layout = input.layout ?? 'frames';

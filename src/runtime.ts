@@ -5,8 +5,11 @@
 import { MediaStore } from './store.ts';
 import { BundledDecoder } from './decoder.ts';
 import { inspectMedia, prepareMedia } from './media.ts';
+import { audioRange, extractAudio, audioMimes } from './audio-media.ts';
+import { audioTasks, type AudioTask } from './audio-types.ts';
+import type { AudioEngine } from './audio-engine.ts';
 import { VERSION, MiB, identity, reference, object, fail, safeError, VisionError,
-  type Config, type VisionService, type CallOptions, type PrepareInput } from './types.ts';
+  type Config, type VisionService, type CallOptions, type PrepareInput, type UnderstandInput, type UnderstoodMedia } from './types.ts';
 
 export class Vision implements VisionService {
   config: Config;
@@ -20,6 +23,8 @@ export class Vision implements VisionService {
   timer?: ReturnType<typeof setInterval>;
   stopPromise?: Promise<void>;
   decoder: BundledDecoder;
+  audio?: AudioEngine;
+  audioInitializationError?: { code: string; error: string };
   constructor(root: string, config: Config, signal: AbortSignal, now?: () => number, decoder = new BundledDecoder()) {
     this.config = config; this.store = new MediaStore(root, config, now);
     this.decoder = decoder;
@@ -39,18 +44,19 @@ export class Vision implements VisionService {
       reason: this.mainModelViewing ? 'ready' : 'multimodal_required',
       modelSupport: 'selected_provider_must_accept_images',
       message: this.mainModelViewing ? '可通过 vision_view 将图片和视频采样画面交给当前主模型。' : '媒体准备服务可用；主模型查看等待宿主公开多模态工具接口。',
-      supported: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'],
+      supported: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', ...audioMimes],
+      audiovisualServiceVersion: '1.0.0', audio: this.audio?.status() ?? { unavailable: true, ...this.audioInitializationError },
       videoDecoder: this.decoder.ready ? 'bundled' : 'unavailable', decoder: this.decoder.status(), ...this.store.summary(), activeOperations: this.pending.size,
       ttlSeconds: this.config.ttlSeconds, maxMediaMiB: this.config.maxMediaMiB,
       maxTotalMiB: this.config.maxTotalMiB, cleanupFailed: this.cleanupFailed };
   }
-  private operation<T>(run: (signal: AbortSignal) => Promise<T>, options?: CallOptions): Promise<T> {
+  private operation<T>(run: (signal: AbortSignal) => Promise<T>, options?: CallOptions, timeout = 120_000): Promise<T> {
     const task = (async () => {
       let combined: AbortSignal | undefined;
       try {
         if (this.closed || this.signal.aborted) fail('stopped', '视觉插件已停用。');
         if (this.pending.size >= 2) fail('busy', '视觉处理繁忙，请稍后重试。');
-        combined = AbortSignal.any([this.signal, AbortSignal.timeout(120_000), ...(options?.signal ? [options.signal] : [])]);
+        combined = AbortSignal.any([this.signal, AbortSignal.timeout(timeout), ...(options?.signal ? [options.signal] : [])]);
         if (combined.aborted) fail('cancelled', '视觉处理已取消。');
         return await run(combined);
       }
@@ -88,6 +94,43 @@ export class Vision implements VisionService {
       return this.store.use(session, ref, signal, entry => prepareMedia(entry, input, this.decoder, signal));
     }, options);
   }
+  understand(input: UnderstandInput, options?: CallOptions): Promise<UnderstoodMedia> {
+    return this.operation(async signal => {
+      const o = object(input), session = identity(o.sessionId), ref = reference(o.mediaRef);
+      if (o.visual !== undefined && typeof o.visual !== 'boolean') fail('invalid_input', '画面开关无效。');
+      if (o.audio !== undefined && (!Array.isArray(o.audio) || o.audio.length > audioTasks.length || o.audio.some(t => !audioTasks.includes(t))))
+        fail('invalid_input', '声音分析项目无效。');
+      return this.store.use(session, ref, signal, async entry => {
+        const visual = input.visual ?? entry.info.kind !== 'audio';
+        const tasks: AudioTask[] = [...new Set(input.audio ?? (entry.info.hasAudio && input.atSeconds === undefined ? ['speech' as const] : []))];
+        if (tasks.length && input.atSeconds !== undefined) fail('invalid_input', '听声音请指定时间段；单帧补看不同时听声音。');
+        if (!visual && !tasks.length) fail('invalid_input', '至少选择画面或一种声音分析。');
+        const range = tasks.length && entry.info.hasAudio ? audioRange(entry.info, input) : null;
+        const result: UnderstoodMedia = { mediaRef: ref, info: { ...entry.info }, status: 'completed',
+          audio: { status: tasks.length ? 'no_audio' : 'not_requested', coverage: range, tasks: [] } };
+        if (visual) {
+          try { result.visual = await prepareMedia(entry, input, this.decoder, signal); }
+          catch (error) { signal.throwIfAborted(); result.visualError = safeError(error); }
+        }
+        if (range) {
+          try {
+            if (!this.audio) fail('audio_unavailable', '声音模块尚未就绪，请检查视听设置。');
+            const clip = await extractAudio(entry, range, this.decoder, signal);
+            result.audio.coverage = clip.coverage;
+            result.audio.tasks = await this.audio.analyze(clip.wav, tasks, clip.coverage.fromSeconds,
+              clip.coverage.toSeconds - clip.coverage.fromSeconds, signal);
+            const done = result.audio.tasks.filter(t => t.status === 'completed').length;
+            result.audio.status = done === tasks.length ? 'completed' : done ? 'partial' : 'failed';
+          } catch (error) { signal.throwIfAborted(); result.audio = { ...result.audio, status: 'failed', ...safeError(error) }; }
+        }
+        signal.throwIfAborted();
+        const failed = !!result.visualError || ['partial', 'failed'].includes(result.audio.status);
+        const completed = !!result.visual || result.audio.tasks.some(t => t.status === 'completed') || result.audio.status === 'no_audio';
+        result.status = failed ? completed ? 'partial' : 'failed' : 'completed';
+        return result;
+      });
+    }, options, 240_000);
+  }
   release(input: { sessionId: string; mediaRef: string }, options?: CallOptions) {
     return this.operation(async () => { const o = object(input); return this.store.release(identity(o.sessionId), reference(o.mediaRef)); }, options);
   }
@@ -97,6 +140,7 @@ export class Vision implements VisionService {
     this.controller.abort();
     if (this.timer) clearInterval(this.timer);
     this.stopPromise = (async () => {
+      await this.audio?.stop();
       await Promise.allSettled([...this.pending]);
       try { await this.store.stop(); } catch (error) { this.cleanupFailed = true; throw error; }
     })();

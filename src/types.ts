@@ -2,12 +2,13 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  * Additional terms under AGPLv3 Section 7: see LICENSE-ADDITIONAL.
  */
-export const VERSION = '0.1.1';
+import { audioDefaults, type AudioSettings, type AudioTask, type AudioOutcome } from './audio-types.ts';
+export const VERSION = '0.2.0';
 export const MiB = 1024 * 1024;
 export const MAX_PIXELS = 40_000_000;
 export const MAX_OUTPUT = 8 * MiB;
 export const MAX_FRAMES = 8;
-export type MediaKind = 'image' | 'animation' | 'video';
+export type MediaKind = 'image' | 'animation' | 'video' | 'audio';
 export type MediaInfo = {
   kind: MediaKind; mime: string; width: number; height: number;
   durationSeconds: number | null; frameCount: number | null;
@@ -33,6 +34,19 @@ export type PreparedMedia = {
   detail: 'overview' | 'detail'; crop: Crop | null; warnings: string[];
 };
 export type CallOptions = { signal?: AbortSignal };
+export type UnderstandInput = PrepareInput & { visual?: boolean; audio?: AudioTask[] };
+export type UnderstoodMedia = {
+  mediaRef: string; info: MediaInfo;
+  visual?: PreparedMedia;
+  visualError?: { code: string; error: string };
+  audio: {
+    status: 'completed' | 'partial' | 'failed' | 'not_requested' | 'no_audio';
+    coverage: { fromSeconds: number; toSeconds: number; nextFromSeconds: number | null } | null;
+    tasks: AudioOutcome[];
+    code?: string; error?: string;
+  };
+  status: 'completed' | 'partial' | 'failed';
+};
 export interface VisionService {
   status(): Record<string, unknown>;
   offerMedia(input: { sessionId: string; base64: string; mime: string }, options?: CallOptions): Promise<MediaOffer>;
@@ -40,7 +54,11 @@ export interface VisionService {
   prepare(input: PrepareInput, options?: CallOptions): Promise<PreparedMedia>;
   release(input: { sessionId: string; mediaRef: string }, options?: CallOptions): Promise<{ released: boolean }>;
 }
-export type Config = { ttlSeconds: number; maxMediaMiB: number; maxTotalMiB: number };
+export interface AudiovisualService extends VisionService {
+  readonly audiovisualApiVersion: '1.0.0';
+  understand(input: UnderstandInput, options?: CallOptions): Promise<UnderstoodMedia>;
+}
+export type Config = { ttlSeconds: number; maxMediaMiB: number; maxTotalMiB: number; audio?: AudioSettings };
 export const defaults: Config = { ttlSeconds: 1800, maxMediaMiB: 64, maxTotalMiB: 256 };
 export class VisionError extends Error {
   code: string;
@@ -79,6 +97,23 @@ export function configOf(value: unknown): Config {
     if (!Number.isInteger(result[key])) fail('invalid_config', '容量和有效期必须为整数。');
   }
   if (result.maxTotalMiB < result.maxMediaMiB) fail('invalid_config', '总容量不能小于单份媒体容量。');
+  if (o.audio !== undefined) {
+    const a = object(o.audio);
+    const next = { ...audioDefaults };
+    for (const key of ['speechBackend', 'musicBackend'] as const) {
+      if (a[key] !== undefined) {
+        if (a[key] !== 'local' && a[key] !== 'cloud') fail('invalid_config', '音频后端选择无效。');
+        next[key] = a[key];
+      }
+    }
+    for (const key of ['speechModelId', 'understandingModelId'] as const) {
+      if (a[key] !== undefined) {
+        if (typeof a[key] !== 'string' || a[key].length > 200 || /[\x00-\x1f\x7f]/.test(a[key])) fail('invalid_config', '模型配置 ID 无效。');
+        next[key] = a[key].trim();
+      }
+    }
+    result.audio = next;
+  }
   // Legacy decoder paths are deliberately ignored; saved media limits remain valid.
   return result;
 }

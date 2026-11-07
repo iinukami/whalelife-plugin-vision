@@ -1,0 +1,33 @@
+{
+  "id": "sensevoice-cpu-v0-2-1-q8",
+  "platform": "win32-x64",
+  "model": "SenseVoiceSmall q8",
+  "fixedThreads": 8,
+  "runtimeSource": "https://github.com/modelscope/FunASR/tree/c69e69a0b78fb9becc8b2be91db8ae57d2a41f3c/runtime/llama.cpp",
+  "runtimeLicense": "MIT",
+  "runtimeLicenseUrl": "https://github.com/modelscope/FunASR/blob/c69e69a0b78fb9becc8b2be91db8ae57d2a41f3c/LICENSE",
+  "modelLicense": "Apache-2.0",
+  "modelCardUrl": "https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/blob/90c1c61912018b70ada0fcc024ea24aca62f2e63/README.md",
+  "vadModelCardUrl": "https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/blob/6840bae4c5c92ee8c04faaf4db23dd0105098d7f/README.md",
+  "provenance": "GitHub release asset SHA-256/size and Hugging Face Git LFS SHA-256/size, read 2026-11-07; no model or executable downloaded during development.",
+  "assets": [
+    {
+      "name": "runtime.zip",
+      "url": "https://github.com/QwenAudio/SenseVoice/releases/download/runtime-llamacpp-v0.2.1/funasr-llamacpp-windows-x64.zip",
+      "bytes": 4958452,
+      "sha256": "b8f2b8f241b57921d82d64068d9b5695629779f3db5f3205a730cb3810232bb4"
+    },
+    {
+      "name": "sensevoice-small-q8.gguf",
+      "url": "https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/90c1c61912018b70ada0fcc024ea24aca62f2e63/sensevoice-small-q8.gguf",
+      "bytes": 254208320,
+      "sha256": "4ae45c94422de949b387e2e0fb10d7e14e4c42c69db30c3444ecc7d4b844b7c5"
+    },
+    {
+      "name": "fsmn-vad.gguf",
+      "url": "https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/6840bae4c5c92ee8c04faaf4db23dd0105098d7f/fsmn-vad.gguf",
+      "bytes": 1720512,
+      "sha256": "1270f2559c495f4e7b6e739541151027d360761a3fda43fc147034f5719f5479"
+    }
+  ]
+}

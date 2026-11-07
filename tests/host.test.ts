@@ -127,7 +127,7 @@ for (const baseline of ['current', '213b52b']) test(`packaged plugin on ${baseli
     const persisted = stored.join('\n');
     assert.ok(!persisted.includes(image.image_url.url));
     assert.ok(!persisted.includes(bytes.toString('base64')));
-    assert.ok(!persisted.includes('TEMPORARY_VISUAL_REPLY_MARKER'));
+    assert.ok(persisted.includes('TEMPORARY_VISUAL_REPLY_MARKER'), 'ordinary chat keeps the final assistant answer; only temporary tool content is excluded');
     assert.ok(persisted.includes('prepare_visual_input'), 'only a truthful preparation receipt is persisted');
   }
   const saved = await post({ revision: state.revision, config: { ...state.config, ttlSeconds: 60 } });

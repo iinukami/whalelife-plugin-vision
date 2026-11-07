@@ -3,4 +3,5 @@
  * Additional terms under AGPLv3 Section 7: see LICENSE-ADDITIONAL.
  */
 export { apply } from './src/index.ts';
-export type { VisionService, MediaOffer, MediaInfo, PrepareInput, PreparedMedia, PreparedImage, CallOptions } from './src/types.ts';
+export type { VisionService, AudiovisualService, MediaOffer, MediaInfo, PrepareInput, PreparedMedia, PreparedImage, CallOptions, UnderstandInput, UnderstoodMedia } from './src/types.ts';
+export type { AudioTask, AudioEvidence, AudioOutcome, AudioSettings, AudioSegment } from './src/audio-types.ts';
