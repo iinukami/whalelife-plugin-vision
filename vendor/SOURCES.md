@@ -13,6 +13,8 @@ Windows x64 发行包携带 Gyan 的 FFmpeg 9.0.2 essentials 静态构建中的 
 
 0.1.1 历史上曾构建并经授权安装本机；0.2.0 于 2026-11-08 完成后续授权安装及视听验收，未上传二进制或创建远端 Release。源码仓库不提交组件缓存与发行物。
 
+当前审查记录、已知依赖及缺项见 [FFMPEG-SOURCE-REVIEW.md](FFMPEG-SOURCE-REVIEW.md) 和 [ffmpeg-source-review.json](ffmpeg-source-review.json)。固定 FFmpeg 本体源码可定位；尚未取得对应静态依赖、实际补丁与构建配方的完整材料。`build:release` 和 `release:check` 在此状态下拒绝二进制发行。普通本地构建不代表公开分发条件已满足。
+
 ## 可选 SenseVoice CPU 资源
 
 资源只在用户点击设置页按钮后下载，启动和工具调用不下载。固定清单为 [sensevoice.json](sensevoice.json)，内部资源目录 ID `sensevoice-cpu-v0-2-1-q8`，Windows x64 CPU、固定 8 线程。下载总量 **260887284 字节**；磁盘另需解压/校验/原子安装的临时空间。

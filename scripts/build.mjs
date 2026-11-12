@@ -8,6 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { prepareRuntime } from './prepare-runtime.mjs';
+import { requireRelease } from './check-release.mjs';
+const buildArgs = process.argv.slice(2);
+if (buildArgs.some(arg => arg !== '--release') || buildArgs.length > 1) throw Error('Usage: node scripts/build.mjs [--release]');
+const releaseBuild = buildArgs.includes('--release');
+// Validate source materials before any download, removal or replacement of dist.
+const approval = releaseBuild ? await requireRelease({ checkBuild: false }) : null;
 const decoderRoot = await prepareRuntime();
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
 const dist = join(root, 'dist'), out = join(dist, 'vision');
@@ -32,6 +38,11 @@ for (const entry of result.stdout.trim().split(/\r?\n/).slice(1)) {
   if (!rel.startsWith('node_modules') || rel.split(/[\\/]/).includes('..') || lstatSync(entry).isSymbolicLink()) throw Error('Unsafe dependency path');
   cpSync(entry, join(out, rel), { recursive: true });
 }
+writeFileSync(join(out, 'RELEASE-STATUS.json'), JSON.stringify({
+  binaryReleaseApproved: !!approval, reviewSha256: approval?.reviewSha256 ?? null,
+  sourceBundleSha256: approval?.sourceBundleSha256 ?? null,
+  note: approval ? 'Offline material checks passed; verify source download availability before upload.' : 'Local build only. Run npm run build:release before binary distribution.'
+}, null, 2) + '\n');
 const files = {};
 function visit(directory) {
   for (const item of readdirSync(directory, { withFileTypes: true })) {
@@ -44,4 +55,6 @@ function visit(directory) {
 visit(out);
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 writeFileSync(join(out, 'BUILD.json'), JSON.stringify({ version: pkg.version, node: process.version, platform: process.platform, arch: process.arch, files }, null, 2) + '\n');
+if (releaseBuild) await requireRelease();
 console.log(`Built ${Object.keys(files).length} files in dist/vision (${process.platform}/${process.arch})`);
+if (!releaseBuild) console.log('Local build only: binary release materials have not been approved.');

@@ -1,0 +1,463 @@
+{
+  "schemaVersion": 1,
+  "checkedOn": "2026-11-12",
+  "target": {
+    "version": "9.0.2",
+    "archiveSha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba",
+    "files": {
+      "ffmpeg.exe": "3256173f3f8bffd7df12227c68adf68025edb1832273a9530688a7bb1ed8edec",
+      "ffprobe.exe": "f0d36ecbbdd3bcfac3efa078c96c7271c2e68b3810595552ac3b7f17e9a65c52",
+      "LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "README.txt": "0342de6bb39dd421cbec2c00d89ad274b640d75ad3f2cab09ffd647ce2d8f949"
+    }
+  },
+  "upstreamEvidence": [
+    "https://www.gyan.dev/ffmpeg/builds/",
+    "https://github.com/GyanD/codexffmpeg/releases/tag/9.0.2",
+    "https://github.com/GyanD/codexffmpeg/issues/249",
+    "https://github.com/GyanD/codexffmpeg/issues/255",
+    "https://github.com/GyanD/codexffmpeg/issues/211"
+  ],
+  "upstreamSource": {
+    "revision": "946fcce07b6dcd0331c8cc609192aeff5e1924f8",
+    "url": "https://github.com/FFmpeg/FFmpeg/commit/946fcce07b6dcd0331c8cc609192aeff5e1924f8",
+    "archive": {
+      "file": "ffmpeg-9.0.2.tar.xz",
+      "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+      "bytes": 12040788,
+      "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+      "signature": "ffmpeg-9.0.2.tar.xz.asc",
+      "signingKeyFingerprint": "FCF986EA15E6E293A5644F10B4322F04D67658D8",
+      "verification": "PGP signature valid; fingerprint independently matches ffmpeg.org/download.html; RELEASE is 9.0.2. Gyan downstream correspondence remains pending."
+    },
+    "scope": "Unmodified FFmpeg source only; dependency sources and downstream patches are not covered."
+  },
+  "compiler": "gcc 16.2.0 (Rev3, Built by MSYS2 project)",
+  "configureArguments": [
+    "--enable-gpl",
+    "--enable-version3",
+    "--enable-static",
+    "--disable-w32threads",
+    "--disable-autodetect",
+    "--enable-cairo",
+    "--enable-fontconfig",
+    "--enable-iconv",
+    "--enable-gnutls",
+    "--enable-libxml2",
+    "--enable-gmp",
+    "--enable-bzlib",
+    "--enable-lzma",
+    "--enable-zlib",
+    "--enable-libsrt",
+    "--enable-libssh",
+    "--enable-libzmq",
+    "--enable-avisynth",
+    "--enable-sdl2",
+    "--enable-libwebp",
+    "--enable-libx264",
+    "--enable-libx265",
+    "--enable-libxvid",
+    "--enable-libaom",
+    "--enable-libopenjpeg",
+    "--enable-libvpx",
+    "--enable-mediafoundation",
+    "--enable-libass",
+    "--enable-libfreetype",
+    "--enable-libfribidi",
+    "--enable-libharfbuzz",
+    "--enable-libvidstab",
+    "--enable-libvmaf",
+    "--enable-libzimg",
+    "--enable-amf",
+    "--enable-cuda-llvm",
+    "--enable-cuvid",
+    "--enable-dxva2",
+    "--enable-d3d11va",
+    "--enable-d3d12va",
+    "--enable-ffnvcodec",
+    "--enable-libvpl",
+    "--enable-nvdec",
+    "--enable-nvenc",
+    "--enable-vaapi",
+    "--enable-openal",
+    "--enable-libgme",
+    "--enable-libopenmpt",
+    "--enable-libopencore-amrwb",
+    "--enable-libmp3lame",
+    "--enable-libtheora",
+    "--enable-libvo-amrwbenc",
+    "--enable-libgsm",
+    "--enable-libopencore-amrnb",
+    "--enable-libopus",
+    "--enable-libspeex",
+    "--enable-libvorbis",
+    "--enable-librubberband"
+  ],
+  "components": [
+    {
+      "id": "ffmpeg",
+      "reportedVersion": "9.0.2",
+      "group": "program",
+      "resolution": null
+    },
+    {
+      "id": "avisynth",
+      "reportedVersion": "v3.7.5-383-g5c82777b",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libmp3lame",
+      "reportedVersion": "3.100",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libvorbis",
+      "reportedVersion": "v1.3.7-37-g1b75110b",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "bzlib",
+      "reportedVersion": null,
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libopencore_amrnb",
+      "reportedVersion": "0.1.6",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libvpx",
+      "reportedVersion": "v1.17.0-57-gd2413e2ca",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "cairo",
+      "reportedVersion": "1.18.5",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libopencore_amrwb",
+      "reportedVersion": "0.1.6",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libwebp",
+      "reportedVersion": "v1.6.0-249-g1f34635",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "gmp",
+      "reportedVersion": null,
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libopenjpeg",
+      "reportedVersion": "2.5.4",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libx264",
+      "reportedVersion": "v0.165.3223",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "gnutls",
+      "reportedVersion": null,
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libopenmpt",
+      "reportedVersion": "libopenmpt-0.6.30-3-g6c0a06bc",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libx265",
+      "reportedVersion": "4.3-45-g116b875",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "iconv",
+      "reportedVersion": null,
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libopus",
+      "reportedVersion": "v1.6.1-68-g503d81b1",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libxml2",
+      "reportedVersion": null,
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libaom",
+      "reportedVersion": "v3.15.0-25-g023743a7d7",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "librubberband",
+      "reportedVersion": "v4.0.0",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libxvid",
+      "reportedVersion": "v1.3.7",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libass",
+      "reportedVersion": "0.17.5-8-gb2fe9d8",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libspeex",
+      "reportedVersion": "Speex-1.2.1-51-g0589522",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libzimg",
+      "reportedVersion": "release-3.0.6-253-g67e0603",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libfontconfig",
+      "reportedVersion": null,
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libsrt",
+      "reportedVersion": "v1.5.7-7-gcae8f62",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libzmq",
+      "reportedVersion": "4.3.5",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libfreetype",
+      "reportedVersion": "VER-2-14-3",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libssh",
+      "reportedVersion": "0.12.2",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "lzma",
+      "reportedVersion": null,
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libfribidi",
+      "reportedVersion": "v1.0.16-19-gc928e4c",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libtheora",
+      "reportedVersion": "v1.2.0",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "mediafoundation",
+      "reportedVersion": null,
+      "group": "platform-capability",
+      "resolution": null
+    },
+    {
+      "id": "libgme",
+      "reportedVersion": "0.6.6",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libvidstab",
+      "reportedVersion": "v1.1.2-214-ge2445c4",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "openal",
+      "reportedVersion": "1.25.2-48-g7532541",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libgsm",
+      "reportedVersion": "1.0.24",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libvmaf",
+      "reportedVersion": "v3.2.0-13-gf85a8536",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "sdl2",
+      "reportedVersion": "release-2.32.0-234-gb90ac9502",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libharfbuzz",
+      "reportedVersion": "14.4.0-108-g64e2b532",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "libvo_amrwbenc",
+      "reportedVersion": "0.1.3",
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "zlib",
+      "reportedVersion": null,
+      "group": "external",
+      "resolution": null
+    },
+    {
+      "id": "amf",
+      "reportedVersion": "v1.5.2-2-gc35f613",
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "d3d12va",
+      "reportedVersion": null,
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "nvdec",
+      "reportedVersion": null,
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "cuda",
+      "reportedVersion": null,
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "dxva2",
+      "reportedVersion": null,
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "nvenc",
+      "reportedVersion": null,
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "cuda_llvm",
+      "reportedVersion": null,
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "ffnvcodec",
+      "reportedVersion": "n13.1.15.0-1-geddcea9",
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "vaapi",
+      "reportedVersion": "2.25.0.",
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "cuvid",
+      "reportedVersion": null,
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "libmfx",
+      "reportedVersion": null,
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "d3d11va",
+      "reportedVersion": null,
+      "group": "hardware-capability",
+      "resolution": null
+    },
+    {
+      "id": "libvpl",
+      "reportedVersion": "2.17",
+      "group": "hardware-capability",
+      "resolution": null
+    }
+  ],
+  "unversionedThirdPartyLibraries": [
+    "bzlib",
+    "gmp",
+    "gnutls",
+    "iconv",
+    "libfontconfig",
+    "libxml2",
+    "lzma",
+    "zlib"
+  ],
+  "closureReview": {
+    "status": "pending",
+    "dependencyClosure": false,
+    "binaryCorrespondence": false,
+    "reviewedBy": null,
+    "reviewedOn": null,
+    "record": null,
+    "unresolved": [
+      "Exact sources and versions for every included direct/transitive dependency are not established.",
+      "Actual downstream patches, dependency build recipes and toolchain package records are not obtained.",
+      "Platform/hardware entries need evidence-based inclusion or exclusion; README names are not a static-link dependency closure.",
+      "Complete source bundle and durable public source delivery have not been reviewed."
+    ]
+  },
+  "delivery": {
+    "bundle": null,
+    "sourceUrl": null,
+    "availabilityReviewed": false
+  }
+}

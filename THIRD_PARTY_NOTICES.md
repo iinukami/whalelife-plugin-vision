@@ -7,7 +7,7 @@
 - **sharp 0.35.5**：Apache-2.0。其平台包、libvips 及关联组件各有适用许可，保留发行依赖目录中的原始 LICENSE/NOTICE，不能只以 sharp 的许可概括全部原生依赖。
 - **undici 7.30.1**：MIT，Copyright (c) Matteo Collina and Undici contributors。原始文本位于随包分发的 `node_modules/undici/LICENSE`；共同 MIT 正文另列于下文。
 - Node.js、TypeScript、@types/node 按各自许可使用；Node.js 由宿主提供，TypeScript/@types 等开发依赖不进入插件生产包。
-- **FFmpeg / ffprobe 9.0.2**：Gyan essentials Windows x64 静态构建，GPLv3。组件目录保留原始 LICENSE、README、版权和构建信息。公开分发须满足该构建及静态依赖的完整对应源码要求，详见 [vendor/SOURCES.md](vendor/SOURCES.md)；源码链接不等于已准备所有源码分发材料。
+- **FFmpeg / ffprobe 9.0.2**：Gyan essentials Windows x64 静态构建，GPLv3。组件目录保留原始 LICENSE、README、版权和构建信息。公开分发须满足该构建及静态依赖的完整对应源码要求，详见 [vendor/SOURCES.md](vendor/SOURCES.md)；源码链接不等于已准备所有源码分发材料。具体依赖版本证据、未解决项及发布检查见 [FFmpeg 源码材料审查](vendor/FFMPEG-SOURCE-REVIEW.md)。
 - 图片、视频、音频和转写所含内容属于其权利人；程序或模型许可不替代媒体使用许可。
 
 ## 按需下载的本地语音组件
