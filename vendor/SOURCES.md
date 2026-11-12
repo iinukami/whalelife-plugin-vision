@@ -2,6 +2,8 @@
 
 ## 内置 FFmpeg
 
+用户或安装 agent 在本机获取、安装和校验组件，请先看 [FFmpeg 获取与安装说明](FFMPEG-INSTALL.md)。下面记录组件来源及重新分发要求。
+
 Windows x64 发行包携带 Gyan 的 FFmpeg 9.0.2 essentials 静态构建中的 ffmpeg 与 ffprobe，未修改二进制，不打包 ffplay。固定下载地址、上游校验值、逐文件摘要和 FFmpeg 源码提交见 [ffmpeg.json](ffmpeg.json)，不追随 latest。
 
 - [构建提供方](https://www.gyan.dev/ffmpeg/builds/)
