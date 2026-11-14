@@ -65,5 +65,3 @@ npm test
 普通 `npm run build` 只生成本地测试包，并在 `RELEASE-STATUS.json` 标记为未经二进制发布验收。公开含 FFmpeg 的安装包前，必须完成 [源码材料审查](vendor/FFMPEG-SOURCE-REVIEW.md)，执行 `npm run build:release`，上传前再执行 `npm run release:check`。检查仅离线读取资料，不下载、不联系服务；资料不齐时会失败，并保留既有产物。当前固定 Gyan 构建的完整材料仍待取得，不把类型检查或业务测试通过当作发布许可。
 
 发行目录为 `dist/vision/`，包含生产依赖、视频组件、许可与 `BUILD.json` SHA-256 清单，不包含用户数据或本地语音权重。安装目录仍为宿主 `plugins/vision/`，升级保留自己的 data。开发会话只完成本地验证与提交；推送和 Release 交统一发布会话。
-
-原创代码采用 [AGPL-3.0-only](LICENSE)，带相应声明的文件另适用 [LICENSE-ADDITIONAL](LICENSE-ADDITIONAL)。第三方实际归属、许可文本及研究来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，组件来源与分发要求见 [vendor/SOURCES.md](vendor/SOURCES.md)。
