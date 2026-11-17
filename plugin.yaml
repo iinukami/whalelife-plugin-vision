@@ -1,5 +1,5 @@
 id: vision
 name: 视听理解
-version: 0.2.0
-description: 图片、视频与音频的按需理解；画面与声音共用媒体时间轴，沿用当前主模型
+version: 0.3.0
+description: 图片、视频、音频与按需看屏；保留全景与变化细节，沿用当前主模型
 apiVersion: "1.0.0"

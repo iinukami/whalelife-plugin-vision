@@ -6,8 +6,9 @@ import sharp, { type Sharp, type Metadata, type OverlayOptions } from 'sharp';
 import { readFile } from 'node:fs/promises';
 import { runProcess } from './process.ts';
 import { selectSamples } from './sampling.ts';
+import { suggestFocus, type FocusDecision } from './focus.ts';
 import { MAX_PIXELS, MAX_OUTPUT, MAX_FRAMES, MiB, fail, numberIn, cropOf,
-  type MediaInfo, type PrepareInput, type PreparedMedia, type PreparedImage, type Crop } from './types.ts';
+  type MediaInfo, type PrepareInput, type PreparedMedia, type PreparedImage, type Crop, type VisualSettings } from './types.ts';
 import type { BundledDecoder } from './decoder.ts';
 import type { StoredMedia } from './store.ts';
 import { inspectAudio } from './audio-media.ts';
@@ -15,6 +16,18 @@ import { inspectAudio } from './audio-media.ts';
 const GRID_W = 64, GRID_H = 36, GRID_BYTES = GRID_W * GRID_H * 3;
 const IMAGE_OPTIONS = { limitInputPixels: MAX_PIXELS, failOn: 'warning' as const };
 type DecodedFrame = { bytes: Buffer; atSeconds: number | null; reason: string };
+type SamplingOptions = { maxFrames: number; sampleFps: number; automaticFocus: boolean };
+
+function selectVisualSamples(grids: Uint8Array[], times: number[], info: MediaInfo, options: SamplingOptions) {
+  const focus: FocusDecision = options.automaticFocus
+    ? suggestFocus(grids, times, { width: info.width, height: info.height, gridWidth: GRID_W, gridHeight: GRID_H })
+    : { reason: '未请求自动聚焦。' };
+  if (focus.suggestion && options.maxFrames < 3) {
+    delete focus.suggestion; focus.reason = '本次帧数预算优先保留首尾全景，没有追加局部图。';
+  }
+  const overviewBudget = options.maxFrames - (focus.suggestion ? 1 : 0);
+  return { ...selectSamples(grids, times, overviewBudget), focus };
+}
 
 async function buffered(pipeline: Sharp, signal: AbortSignal): Promise<Buffer> {
   signal.throwIfAborted();
@@ -135,38 +148,52 @@ function timeRange(input: PrepareInput, info: MediaInfo) {
   if (to <= from || to - from > 60) fail('invalid_input', '每次查看的时间段必须大于零且不超过 60 秒。');
   return { from, to, at: null, next: to < duration ? to : null };
 }
-async function videoFrame(path: string, mime: string, at: number, size: number, decoder: BundledDecoder, signal: AbortSignal) {
+function pixelCrop(width: number, height: number, crop: Crop) {
+  const left = Math.min(width - 1, Math.floor(crop.x * width)), top = Math.min(height - 1, Math.floor(crop.y * height));
+  return { left, top, width: Math.max(1, Math.min(width - left, Math.round(crop.width * width))),
+    height: Math.max(1, Math.min(height - top, Math.round(crop.height * height))) };
+}
+async function videoFrame(path: string, mime: string, at: number, size: number, decoder: BundledDecoder, signal: AbortSignal,
+  sourceRegion?: { width: number; height: number; crop: Crop }) {
+  const rect = sourceRegion && pixelCrop(sourceRegion.width, sourceRegion.height, sourceRegion.crop);
+  // Crop decoded source pixels before resizing so a small region in a large video stays readable.
+  const filter = rect
+    ? `crop=${rect.width}:${rect.height}:${rect.left}:${rect.top}:exact=1,scale='min(iw,${size})':'min(ih,${size})':force_original_aspect_ratio=decrease`
+    : `scale=${size}:${size}:force_original_aspect_ratio=decrease`;
   return runProcess(decoder.paths().ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-threads', '1',
     '-ss', at.toFixed(6), ...decoderInput(path, mime), '-map', '0:v:0', '-an', '-sn', '-dn', '-frames:v', '1',
-    '-filter_threads', '1', '-vf', `scale=${size}:${size}:force_original_aspect_ratio=decrease`,
+    '-filter_threads', '1', '-vf', filter,
     '-threads', '1', '-c:v', 'mjpeg', '-q:v', '2', '-f', 'image2pipe', 'pipe:1'], signal, 8 * MiB);
 }
-async function videoSamples(entry: StoredMedia, from: number, to: number, decoder: BundledDecoder, signal: AbortSignal) {
+async function videoSamples(entry: StoredMedia, from: number, to: number, decoder: BundledDecoder, signal: AbortSignal, options: SamplingOptions) {
   const raw = await runProcess(decoder.paths().ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-threads', '1',
     '-ss', from.toFixed(6), ...decoderInput(entry.path, entry.info.mime), '-t', (to - from).toFixed(6),
     '-map', '0:v:0', '-an', '-sn', '-dn', '-filter_threads', '1', '-vf',
-    `setpts=PTS-STARTPTS,fps=2:start_time=0:round=down,scale=${GRID_W}:${GRID_H}:force_original_aspect_ratio=decrease,pad=${GRID_W}:${GRID_H}:(ow-iw)/2:(oh-ih)/2,format=rgb24`,
-    '-threads', '1', '-f', 'rawvideo', 'pipe:1'], signal, (Math.ceil((to - from) * 2) + 2) * GRID_BYTES);
-  if (!raw.length) return { samples: [{ atSeconds: from, reason: 'first' as const, score: 1 }], omittedCandidates: 0 };
+    `setpts=PTS-STARTPTS,fps=${options.sampleFps}:start_time=0:round=down,scale=${GRID_W}:${GRID_H}:force_original_aspect_ratio=decrease,pad=${GRID_W}:${GRID_H}:(ow-iw)/2:(oh-ih)/2,format=rgb24`,
+    '-threads', '1', '-f', 'rawvideo', 'pipe:1'], signal, (Math.ceil((to - from) * options.sampleFps) + 2) * GRID_BYTES);
+  if (!raw.length) return { samples: [{ atSeconds: from, reason: 'first' as const, score: 1 }], omittedCandidates: 0,
+    focus: { reason: '变化样本不足，保留全景。' } as FocusDecision };
   if (raw.length % GRID_BYTES) fail('decode_failed', '所选时间段没有完整的可解码画面。');
   const grids: Uint8Array[] = [], times: number[] = [];
   for (let offset = 0; offset < raw.length; offset += GRID_BYTES) {
-    const time = from + grids.length / 2;
+    const time = from + grids.length / options.sampleFps;
     if (time >= to) break;
     grids.push(raw.subarray(offset, offset + GRID_BYTES)); times.push(time);
   }
-  return selectSamples(grids, times, MAX_FRAMES);
+  signal.throwIfAborted();
+  return selectVisualSamples(grids, times, entry.info, options);
 }
-async function animationSamples(bytes: Buffer, from: number, to: number, signal: AbortSignal) {
+async function animationSamples(bytes: Buffer, from: number, to: number, info: MediaInfo, signal: AbortSignal, options: SamplingOptions) {
   const meta = await imageMetadata(bytes), timing = frameDelays(meta);
   const grids: Uint8Array[] = [], times: number[] = [];
-  for (let at = from; at < to; at += 0.5) {
+  for (let step = 0; from + step / options.sampleFps < to; step++) {
+    const at = from + step / options.sampleFps;
     signal.throwIfAborted();
     const page = pageAt(timing.starts, at);
     grids.push(await buffered(sharp(bytes, { ...IMAGE_OPTIONS, page, pages: 1 }).resize(GRID_W, GRID_H, { fit: 'contain', background: '#000' }).removeAlpha().raw(), signal));
     times.push(at);
   }
-  return { ...selectSamples(grids, times, MAX_FRAMES), timing };
+  return { ...selectVisualSamples(grids, times, info, options), timing };
 }
 function pageAt(starts: number[], at: number) {
   let page = 0;
@@ -178,69 +205,103 @@ async function renderFrame(frame: DecodedFrame, detail: string, crop: Crop | und
   let pipe = sharp(bytes, IMAGE_OPTIONS);
   if (crop) {
     const meta = await imageMetadata(bytes);
-    const left = Math.min(meta.width! - 1, Math.floor(crop.x * meta.width!));
-    const top = Math.min(meta.height! - 1, Math.floor(crop.y * meta.height!));
-    pipe = pipe.extract({ left, top, width: Math.max(1, Math.min(meta.width! - left, Math.round(crop.width * meta.width!))),
-      height: Math.max(1, Math.min(meta.height! - top, Math.round(crop.height * meta.height!))) });
+    pipe = pipe.extract(pixelCrop(meta.width!, meta.height!, crop));
   }
   const maxSide = detail === 'detail' ? 1600 : 640;
   bytes = await buffered(pipe.resize(maxSide, maxSide, { fit: 'inside', withoutEnlargement: true }).flatten({ background: '#ffffff' }).jpeg({ quality: 85 }), signal);
   if (bytes.length > 2 * MiB) fail('output_limit', '单张准备图像过大，请使用概览或裁剪。');
   const meta = await imageMetadata(bytes);
-  return { bytes, width: meta.width!, height: meta.height!, frame };
+  // Retain only the rendered bytes and temporal metadata, not the large source buffer.
+  return { bytes, width: meta.width!, height: meta.height!, frame: { atSeconds: frame.atSeconds, reason: frame.reason } };
 }
 
-export async function prepareMedia(entry: StoredMedia, input: PrepareInput, decoder: BundledDecoder, signal: AbortSignal): Promise<PreparedMedia> {
+export async function prepareMedia(entry: StoredMedia, input: PrepareInput, decoder: BundledDecoder, signal: AbortSignal, settings?: VisualSettings): Promise<PreparedMedia> {
+  signal.throwIfAborted();
   if (entry.info.kind === 'audio') fail('no_visual', '该媒体只有声音，请使用统一视听入口。');
   const range = timeRange(input, entry.info);
-  const detail = input.detail ?? (range.at === null ? 'overview' : 'detail');
-  const layout = input.layout ?? 'frames';
+  const configuredDetail = settings?.detail ?? 'auto';
+  if (!['auto', 'overview', 'detail'].includes(configuredDetail)) fail('invalid_input', '默认画质无效。');
+  const detail = input.detail ?? (configuredDetail === 'auto' ? (range.at === null ? 'overview' : 'detail') : configuredDetail);
+  const layout = input.layout ?? settings?.layout ?? 'frames';
   if (!['overview', 'detail'].includes(detail) || !['frames', 'sheet'].includes(layout)) fail('invalid_input', '画质或布局无效。');
   const crop = cropOf(input.crop);
-  const frames: DecodedFrame[] = [];
+  const focusMode = input.focus ?? settings?.focus ?? 'whole';
+  if (focusMode !== 'whole' && focusMode !== 'auto') fail('invalid_input', '聚焦方式无效。');
+  const maxFrames = numberIn(input.maxFrames ?? settings?.maxFrames ?? MAX_FRAMES, 2, MAX_FRAMES, '画面数量');
+  if (!Number.isInteger(maxFrames)) fail('invalid_input', '画面数量必须为整数。');
+  const sampleFps = input.sampleFps ?? settings?.sampleFps ?? 2;
+  if (![1, 2, 4, 6].includes(sampleFps)) fail('invalid_input', '采样频率须为每秒 1、2、4 或 6 次。');
+  const sampling = { maxFrames, sampleFps, automaticFocus: focusMode === 'auto' && !crop };
+  let focus: FocusDecision = { reason: crop ? '使用显式裁剪区域，未再自动裁剪。'
+    : entry.info.kind === 'image' ? '静态图片没有时序变化，保留全图。'
+    : range.at !== null ? '单独时刻没有时序变化，保留全图。' : '未请求自动聚焦。' };
+  type Rendered = Awaited<ReturnType<typeof renderFrame>> & { role?: 'overview' | 'focus'; crop?: Crop };
+  const rendered: Rendered[] = [];
+  const add = async (frame: DecodedFrame, region = crop, role?: 'overview' | 'focus', alreadyCropped = false) => {
+    const item = await renderFrame(frame, role === 'focus' ? 'detail' : detail, alreadyCropped ? undefined : region, signal);
+    rendered.push({ ...item, ...(role ? { role } : {}), ...(region ? { crop: region } : {}) });
+  };
+  const overviewRole = focusMode === 'auto' && !crop ? 'overview' as const : undefined;
   let omitted = 0;
-  if (entry.info.kind === 'image') frames.push({ bytes: await readFile(entry.path, { signal }), atSeconds: null, reason: 'still' });
+  if (entry.info.kind === 'image') await add({ bytes: await readFile(entry.path, { signal }), atSeconds: null, reason: 'still' }, crop, overviewRole);
   else if (entry.info.kind === 'video') {
-    const selection = range.at !== null ? { samples: [{ atSeconds: range.at, reason: 'requested', score: 0 }], omittedCandidates: 0 }
-      : await videoSamples(entry, range.from!, range.to!, decoder, signal);
+    const selection = range.at !== null ? { samples: [{ atSeconds: range.at, reason: 'requested', score: 0 }], omittedCandidates: 0, focus }
+      : await videoSamples(entry, range.from!, range.to!, decoder, signal, sampling);
     omitted = selection.omittedCandidates;
+    if (sampling.automaticFocus) focus = selection.focus;
     for (const sample of selection.samples) {
       // Keep enough pixels for a requested crop; cropping after overview scaling loses small text.
       const size = crop ? 4096 : detail === 'detail' ? 1600 : 640;
-      frames.push({ bytes: await videoFrame(entry.path, entry.info.mime, sample.atSeconds, size, decoder, signal), atSeconds: sample.atSeconds, reason: sample.reason });
+      await add({ bytes: await videoFrame(entry.path, entry.info.mime, sample.atSeconds, size, decoder, signal), atSeconds: sample.atSeconds, reason: sample.reason }, crop, overviewRole);
+    }
+    if (focus.suggestion) {
+      const { atSeconds, crop: region } = focus.suggestion;
+      await add({ bytes: await videoFrame(entry.path, entry.info.mime, atSeconds, 1600, decoder, signal,
+        { width: entry.info.width, height: entry.info.height, crop: region }), atSeconds, reason: 'focus' }, region, 'focus', true);
     }
   } else {
     const bytes = await readFile(entry.path, { signal });
     const selection = range.at !== null ? { samples: [{ atSeconds: range.at, reason: 'requested', score: 0 }], omittedCandidates: 0,
-      timing: frameDelays(await imageMetadata(bytes)) } : await animationSamples(bytes, range.from!, range.to!, signal);
+      timing: frameDelays(await imageMetadata(bytes)), focus } : await animationSamples(bytes, range.from!, range.to!, entry.info, signal, sampling);
     omitted = selection.omittedCandidates;
+    if (sampling.automaticFocus) focus = selection.focus;
     for (const sample of selection.samples) {
       const page = pageAt(selection.timing.starts, sample.atSeconds);
-      frames.push({ bytes: await buffered(sharp(bytes, { ...IMAGE_OPTIONS, page, pages: 1 }).png(), signal),
-        atSeconds: sample.atSeconds, reason: sample.reason });
+      await add({ bytes: await buffered(sharp(bytes, { ...IMAGE_OPTIONS, page, pages: 1 }).png(), signal),
+        atSeconds: sample.atSeconds, reason: sample.reason }, crop, overviewRole);
+    }
+    if (focus.suggestion) {
+      const { atSeconds, crop: region } = focus.suggestion;
+      const page = pageAt(selection.timing.starts, atSeconds);
+      await add({ bytes: await buffered(sharp(bytes, { ...IMAGE_OPTIONS, page, pages: 1 }).png(), signal),
+        atSeconds, reason: 'focus' }, region, 'focus');
     }
   }
-  if (!frames.length) fail('decode_failed', '没有可返回的画面。');
-  const rendered = [];
-  for (const frame of frames) rendered.push(await renderFrame(frame, detail, crop, signal));
+  if (!rendered.length) fail('decode_failed', '没有可返回的画面。');
+  const overviews = rendered.filter(item => item.role !== 'focus'), details = rendered.filter(item => item.role === 'focus');
   const images: PreparedImage[] = [];
-  if (layout === 'sheet' && rendered.length > 1) {
-    const cell = detail === 'detail' ? 800 : 480, columns = Math.min(2, rendered.length);
-    const width = columns * cell, height = Math.ceil(rendered.length / columns) * (cell + 28);
+  if (layout === 'sheet' && overviews.length > 1) {
+    const cell = detail === 'detail' ? 800 : 480, columns = Math.min(2, overviews.length);
+    const width = columns * cell, height = Math.ceil(overviews.length / columns) * (cell + 28);
     const composite: OverlayOptions[] = [];
     const descriptors: PreparedImage['frames'] = [];
-    for (let i = 0; i < rendered.length; i++) {
-      const item = rendered[i], x = (i % columns) * cell, y = Math.floor(i / columns) * (cell + 28);
+    for (let i = 0; i < overviews.length; i++) {
+      const item = overviews[i], x = (i % columns) * cell, y = Math.floor(i / columns) * (cell + 28);
       const thumb = await buffered(sharp(item.bytes).resize(cell, cell, { fit: 'contain', background: '#ffffff' }), signal);
       const text = `${i + 1} | ${item.frame.atSeconds === null ? 'image' : item.frame.atSeconds.toFixed(2) + 's'}`;
       composite.push({ input: thumb, left: x, top: y + 28 }, { input: Buffer.from(`<svg width="${cell}" height="28"><rect width="100%" height="100%" fill="white"/><text x="8" y="20" font-size="16" fill="black">${text}</text></svg>`), left: x, top: y });
-      descriptors.push({ index: i + 1, atSeconds: item.frame.atSeconds, reason: item.frame.reason, rect: { x, y: y + 28, width: cell, height: cell } });
+      descriptors.push({ index: i + 1, atSeconds: item.frame.atSeconds, reason: item.frame.reason,
+        ...(item.role ? { role: item.role } : {}), ...(item.crop ? { crop: item.crop } : {}), rect: { x, y: y + 28, width: cell, height: cell } });
     }
     const bytes = await buffered(sharp({ create: { width, height, channels: 3, background: '#fff' } }).composite(composite).jpeg({ quality: 85 }), signal);
     if (bytes.length > 4 * MiB) fail('output_limit', '拼图超过宿主单图限制，请改为独立画面或概览画质。');
     images.push({ mime: 'image/jpeg', base64: bytes.toString('base64'), width, height, frames: descriptors });
-  } else for (const [i, item] of rendered.entries()) images.push({ mime: 'image/jpeg', base64: item.bytes.toString('base64'), width: item.width, height: item.height,
-    frames: [{ index: i + 1, atSeconds: item.frame.atSeconds, reason: item.frame.reason, rect: { x: 0, y: 0, width: item.width, height: item.height } }] });
+  } else for (const [i, item] of overviews.entries()) images.push({ mime: 'image/jpeg', base64: item.bytes.toString('base64'), width: item.width, height: item.height,
+    frames: [{ index: i + 1, atSeconds: item.frame.atSeconds, reason: item.frame.reason,
+      ...(item.role ? { role: item.role } : {}), ...(item.crop ? { crop: item.crop } : {}), rect: { x: 0, y: 0, width: item.width, height: item.height } }] });
+  for (const [i, item] of details.entries()) images.push({ mime: 'image/jpeg', base64: item.bytes.toString('base64'), width: item.width, height: item.height,
+    frames: [{ index: overviews.length + i + 1, atSeconds: item.frame.atSeconds, reason: 'focus', role: 'focus', crop: item.crop,
+      rect: { x: 0, y: 0, width: item.width, height: item.height } }] });
   if (images.reduce((n, i) => n + Buffer.byteLength(i.base64, 'base64'), 0) > MAX_OUTPUT) fail('output_limit', '返回图像总大小超过 8 MiB。');
   signal.throwIfAborted();
   const animated = entry.info.kind !== 'image';
@@ -248,8 +309,10 @@ export async function prepareMedia(entry: StoredMedia, input: PrepareInput, deco
   if (entry.info.timing === 'estimated') warnings.push('动图部分帧缺少有效延时，时间位置按默认帧延时估算。');
   if (omitted) warnings.push('候选画面超过本次上限；可缩短时间段或按时刻补看。');
   if (layout === 'sheet') warnings.push('拼图可能缩小文字和细节，可改为独立画面或指定时刻高清查看。');
+  if (focusMode === 'auto') warnings.push('自动聚焦只依据采样中的局部变化；未找到区域不代表没有内容，细小或短暂变化仍可能遗漏。');
   return { mediaRef: entry.ref, info: { ...entry.info }, images, detail, crop: crop ?? null, warnings,
+    ...(focusMode === 'auto' ? { focus: { mode: focusMode, applied: details.length > 0, reason: focus.reason } } : {}),
     coverage: { fromSeconds: range.from, toSeconds: range.to, nextFromSeconds: range.next,
-      sampled: animated, audioIncluded: false, sampleIntervalSeconds: animated && range.at === null ? 0.5 : null,
-      selectedTimes: frames.flatMap(f => f.atSeconds === null ? [] : [f.atSeconds]), omittedCandidates: omitted, timelineComplete: false } };
+      sampled: animated, audioIncluded: false, sampleIntervalSeconds: animated && range.at === null ? 1 / sampleFps : null,
+      selectedTimes: [...new Set(rendered.flatMap(item => item.frame.atSeconds === null ? [] : [item.frame.atSeconds]))].sort((a, b) => a - b), omittedCandidates: omitted, timelineComplete: false } };
 }

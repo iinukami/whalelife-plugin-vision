@@ -3,7 +3,8 @@
  * Additional terms under AGPLv3 Section 7: see LICENSE-ADDITIONAL.
  */
 import { audioDefaults, type AudioSettings, type AudioTask, type AudioOutcome } from './audio-types.ts';
-export const VERSION = '0.2.0';
+import { screenSettingsOf, type ScreenSettings } from './screen.ts';
+export const VERSION = '0.3.0';
 export const MiB = 1024 * 1024;
 export const MAX_PIXELS = 40_000_000;
 export const MAX_OUTPUT = 8 * MiB;
@@ -16,13 +17,19 @@ export type MediaInfo = {
 };
 export type MediaOffer = { mediaRef: string; expiresAt: string; info: MediaInfo };
 export type Crop = { x: number; y: number; width: number; height: number };
+export type VisualSettings = {
+  detail: 'auto' | 'overview' | 'detail'; layout: 'frames' | 'sheet'; focus: 'whole' | 'auto';
+  maxFrames: number; sampleFps: 1 | 2 | 4 | 6;
+};
+export const visualDefaults: VisualSettings = { detail: 'auto', layout: 'frames', focus: 'whole', maxFrames: 8, sampleFps: 2 };
 export type PrepareInput = {
   sessionId: string; mediaRef: string; fromSeconds?: number; toSeconds?: number;
   atSeconds?: number; detail?: 'overview' | 'detail'; layout?: 'frames' | 'sheet'; crop?: Crop;
+  focus?: 'whole' | 'auto'; maxFrames?: number; sampleFps?: 1 | 2 | 4 | 6;
 };
 export type PreparedImage = {
   mime: 'image/jpeg'; base64: string; width: number; height: number;
-  frames: { index: number; atSeconds: number | null; reason: string;
+  frames: { index: number; atSeconds: number | null; reason: string; role?: 'overview' | 'focus'; crop?: Crop;
     rect: { x: number; y: number; width: number; height: number } }[];
 };
 /** Trusted service output, NEVER an ordinary JSON model-tool result. */
@@ -32,6 +39,7 @@ export type PreparedMedia = {
     sampled: boolean; audioIncluded: false; sampleIntervalSeconds: number | null;
     selectedTimes: number[]; omittedCandidates: number; timelineComplete: false };
   detail: 'overview' | 'detail'; crop: Crop | null; warnings: string[];
+  focus?: { mode: 'whole' | 'auto'; applied: boolean; reason: string };
 };
 export type CallOptions = { signal?: AbortSignal };
 export type UnderstandInput = PrepareInput & { visual?: boolean; audio?: AudioTask[] };
@@ -58,7 +66,7 @@ export interface AudiovisualService extends VisionService {
   readonly audiovisualApiVersion: '1.0.0';
   understand(input: UnderstandInput, options?: CallOptions): Promise<UnderstoodMedia>;
 }
-export type Config = { ttlSeconds: number; maxMediaMiB: number; maxTotalMiB: number; audio?: AudioSettings };
+export type Config = { ttlSeconds: number; maxMediaMiB: number; maxTotalMiB: number; audio?: AudioSettings; visual?: VisualSettings; screen?: ScreenSettings };
 export const defaults: Config = { ttlSeconds: 1800, maxMediaMiB: 64, maxTotalMiB: 256 };
 export class VisionError extends Error {
   code: string;
@@ -124,8 +132,30 @@ export function configOf(value: unknown): Config {
     if (a.resourceProxyUrl !== undefined) next.resourceProxyUrl = resourceProxyOf(a.resourceProxyUrl);
     result.audio = next;
   }
+  if (o.visual !== undefined) result.visual = visualSettingsOf(o.visual);
+  if (o.screen !== undefined) result.screen = screenSettingsOf(o.screen);
   // Legacy decoder paths are deliberately ignored; saved media limits remain valid.
   return result;
+}
+export function visualSettingsOf(value: unknown): VisualSettings {
+  const o = object(value), next = { ...visualDefaults };
+  for (const [key, values] of [
+    ['detail', ['auto', 'overview', 'detail']], ['layout', ['frames', 'sheet']], ['focus', ['whole', 'auto']],
+  ] as const) {
+    if (o[key] !== undefined) {
+      if (!(values as readonly unknown[]).includes(o[key])) fail('invalid_config', '视觉处理选项无效。');
+      Object.assign(next, { [key]: o[key] });
+    }
+  }
+  if (o.maxFrames !== undefined) {
+    next.maxFrames = numberIn(o.maxFrames, 2, MAX_FRAMES, '视觉画面上限');
+    if (!Number.isInteger(next.maxFrames)) fail('invalid_config', '视觉画面上限必须为整数。');
+  }
+  if (o.sampleFps !== undefined) {
+    if (![1, 2, 4, 6].includes(o.sampleFps as number)) fail('invalid_config', '视觉采样密度无效。');
+    next.sampleFps = o.sampleFps as VisualSettings['sampleFps'];
+  }
+  return next;
 }
 export function cropOf(value: unknown): Crop | undefined {
   if (value === undefined) return;

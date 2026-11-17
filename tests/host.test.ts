@@ -89,6 +89,9 @@ for (const baseline of ['current', '213b52b']) test(`packaged plugin on ${baseli
   assert.doesNotMatch(await (await get('settings')).text(), /name="ffmpegPath"|name="ffprobePath"/);
   assert.match(await (await get('settings')).text(), /旧宿主显示主模型查看暂不可用/);
   assert.equal(app.tools.list().some((x: any) => x.function.name === 'vision_view'), native);
+  assert.equal(app.tools.list().some((x: any) => x.function.name === 'screen_view'), native);
+  assert.equal(state.status.screen.enabled, false);
+  assert.equal(state.status.visual.detail, 'auto');
   if (native) assert.deepEqual(app.tools.list().find((x: any) => x.function.name === 'vision_view').function.parameters.required, ['mediaRef']);
   const svc = app.runtime.services.get('vision').value;
   const sourceSvc = app.runtime.services.get('mock-source').value;
@@ -105,6 +108,10 @@ for (const baseline of ['current', '213b52b']) test(`packaged plugin on ${baseli
   assert.ok(!JSON.stringify(status).includes('base64')); assert.ok(!JSON.stringify(status).includes(ref.mediaRef));
   assert.equal(modelCalls.length, 0, 'media preparation must not invoke any model');
   if (native) {
+    const screen = await app.tools.call('screen_view', { mode: 'snapshot' }, { id: input.sessionId, permission: 'full' });
+    assert.ok(screen.result.every((part: any) => part.type === 'text'));
+    assert.match(JSON.stringify(screen.result), /screen_disabled/);
+    assert.equal(modelCalls.length, 0, 'disabled screen capture never starts a model request');
     const refused = await app.tools.call('vision_view', { mediaRef: ref.mediaRef, sessionId: input.sessionId }, { id: 'synthetic-other-session', permission: 'full' });
     assert.ok(!refused.result.some((part: any) => part.type === 'image'), 'model cannot override the trusted session');
     viewRef = ref.mediaRef;
@@ -130,12 +137,22 @@ for (const baseline of ['current', '213b52b']) test(`packaged plugin on ${baseli
     assert.ok(persisted.includes('TEMPORARY_VISUAL_REPLY_MARKER'), 'ordinary chat keeps the final assistant answer; only temporary tool content is excluded');
     assert.ok(persisted.includes('prepare_visual_input'), 'only a truthful preparation receipt is persisted');
   }
-  const saved = await post({ revision: state.revision, config: { ...state.config, ttlSeconds: 60 } });
+  const visualConfig = { ...state.visualDefaults, detail: 'detail', focus: 'auto', maxFrames: 4, sampleFps: 4 };
+  const screenConfig = { ...state.screenDefaults, enabled: true, target: 'screen', seconds: 5 };
+  const saved = await post({ revision: state.revision, config: { ...state.config, ttlSeconds: 60, visual: visualConfig, screen: screenConfig } });
   assert.equal(saved.status, 200, await saved.text());
   const conflict = await post({ revision: state.revision, config: state.config });
   assert.equal(conflict.status, 400); assert.equal((await conflict.json() as any).code, 'conflict');
   state = await (await get('state')).json(); assert.equal(state.pendingReload, true); assert.equal(state.config.ttlSeconds, 60);
   assert.equal(state.status.ttlSeconds, 1800, 'saved config waits for reload');
+  assert.equal(state.status.visual.detail, 'auto'); assert.equal(state.status.screen.enabled, false);
+  const invalidVisual = await post({ revision: state.revision, config: { ...state.config, visual: { ...visualConfig, maxFrames: 1 } } });
+  assert.equal(invalidVisual.status, 400);
+  const legacySave = await post({ revision: state.revision, config: { ttlSeconds: 60, maxMediaMiB: 64, maxTotalMiB: 256 } });
+  assert.equal(legacySave.status, 200);
+  state = await (await get('state')).json();
+  assert.deepEqual(state.config.visual, visualConfig, 'old settings clients preserve visual preferences');
+  assert.deepEqual(state.config.screen, screenConfig, 'old settings clients preserve screen preferences');
   await app.runtime.action('vision', 'stop');
   assert.equal(await sourceSvc.ping(), 'source text works');
   assert.equal(app.runtime.records.get('mock-source').status, 'active');
@@ -149,6 +166,8 @@ for (const baseline of ['current', '213b52b']) test(`packaged plugin on ${baseli
   await app.runtime.action('vision', 'start');
   const fresh = app.runtime.services.get('vision').value;
   assert.equal((await fresh.status()).ttlSeconds, 60);
+  assert.deepEqual((await fresh.status()).visual, visualConfig);
+  assert.equal((await fresh.status()).screen.enabled, true, 'enabling settings alone does not capture');
   await assert.rejects(fresh.describe({ sessionId: input.sessionId, mediaRef: ref.mediaRef }));
   const disk = await readFile(join(run, 'plugins/vision/data/config.json'), 'utf8');
   assert.equal(JSON.parse(disk).ttlSeconds, 60);

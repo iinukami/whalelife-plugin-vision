@@ -12,7 +12,8 @@ export function difference(a: Uint8Array, b: Uint8Array): number {
 }
 /** The cap thins candidates across the whole interval; never silently keeps only the tail. */
 export function selectSamples(grids: Uint8Array[], times: number[], maxFrames: number) {
-  if (grids.length !== times.length || maxFrames < 2) throw new Error('Invalid sampling input');
+  if (grids.length !== times.length || !Number.isInteger(maxFrames) || maxFrames < 2
+    || times.some((time, i) => !Number.isFinite(time) || (i > 0 && time <= times[i - 1]))) throw new Error('Invalid sampling input');
   const candidates: Sample[] = [];
   let motion = 0, lastTime = -Infinity;
   for (let i = 0; i < grids.length; i++) {

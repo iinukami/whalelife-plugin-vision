@@ -25,6 +25,8 @@ export function registerUnderstandTool(ctx: Context, app: Vision): boolean {
       mediaRef: { type: 'string' }, fromSeconds: { type: 'number' }, toSeconds: { type: 'number' }, atSeconds: { type: 'number' },
       visual: { type: 'boolean' }, audio: { type: 'array', items: { type: 'string', enum: audioTasks }, maxItems: 6 },
       detail: { type: 'string', enum: ['overview', 'detail'] }, layout: { type: 'string', enum: ['frames', 'sheet'] },
+      focus: { type: 'string', enum: ['whole', 'auto'], description: 'auto 为动态画面追加可靠变化区域的细节，仍保留全景；手动裁剪优先。' },
+      maxFrames: { type: 'integer', minimum: 2, maximum: 8 }, sampleFps: { type: 'number', enum: [1, 2, 4, 6] },
       crop: { type: 'object', additionalProperties: false, required: ['x', 'y', 'width', 'height'],
         properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } },
     } },
@@ -35,7 +37,9 @@ export function registerUnderstandTool(ctx: Context, app: Vision): boolean {
           fromSeconds: o.fromSeconds as number | undefined, toSeconds: o.toSeconds as number | undefined,
           atSeconds: o.atSeconds as number | undefined, visual: o.visual as boolean | undefined,
           audio: o.audio as UnderstandInput['audio'], detail: o.detail as UnderstandInput['detail'],
-          layout: o.layout as UnderstandInput['layout'], crop: o.crop as UnderstandInput['crop'] }, { signal: session.signal });
+          layout: o.layout as UnderstandInput['layout'], crop: o.crop as UnderstandInput['crop'],
+          focus: o.focus as UnderstandInput['focus'], maxFrames: o.maxFrames as number | undefined,
+          sampleFps: o.sampleFps as UnderstandInput['sampleFps'] }, { signal: session.signal });
         return { content: understandingContent(result), receipt: { action: 'prepare_audiovisual_input', outcome: result.status,
           kind: result.info.kind, images: result.visual?.images.length ?? 0,
           audioStatus: result.audio.status, fromSeconds: result.audio.coverage?.fromSeconds ?? result.visual?.coverage.fromSeconds ?? null,

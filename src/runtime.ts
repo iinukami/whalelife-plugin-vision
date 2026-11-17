@@ -8,7 +8,8 @@ import { inspectMedia, prepareMedia } from './media.ts';
 import { audioRange, extractAudio, audioMimes } from './audio-media.ts';
 import { audioTasks, type AudioTask } from './audio-types.ts';
 import type { AudioEngine } from './audio-engine.ts';
-import { VERSION, MiB, identity, reference, object, fail, safeError, VisionError,
+import { ScreenCapture, screenDefaults, type ScreenInput } from './screen.ts';
+import { VERSION, MiB, identity, reference, object, fail, safeError, VisionError, visualDefaults,
   type Config, type VisionService, type CallOptions, type PrepareInput, type UnderstandInput, type UnderstoodMedia } from './types.ts';
 
 export class Vision implements VisionService {
@@ -24,11 +25,13 @@ export class Vision implements VisionService {
   stopPromise?: Promise<void>;
   decoder: BundledDecoder;
   audio?: AudioEngine;
+  screen: ScreenCapture;
   audioInitializationError?: { code: string; error: string };
   constructor(root: string, config: Config, signal: AbortSignal, now?: () => number, decoder = new BundledDecoder()) {
     this.config = config; this.store = new MediaStore(root, config, now);
     this.decoder = decoder;
     this.signal = AbortSignal.any([signal, this.controller.signal]);
+    this.screen = new ScreenCapture(config.screen ?? screenDefaults, this.signal);
   }
   async start() {
     this.signal.throwIfAborted();
@@ -46,6 +49,7 @@ export class Vision implements VisionService {
       message: this.mainModelViewing ? '可通过 vision_view 将图片和视频采样画面交给当前主模型。' : '媒体准备服务可用；主模型查看等待宿主公开多模态工具接口。',
       supported: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', ...audioMimes],
       audiovisualServiceVersion: '1.0.0', audio: this.audio?.status() ?? { unavailable: true, ...this.audioInitializationError },
+      visual: { ...visualDefaults, ...this.config.visual }, screen: this.screen.status(),
       videoDecoder: this.decoder.ready ? 'bundled' : 'unavailable', decoder: this.decoder.status(), ...this.store.summary(), activeOperations: this.pending.size,
       ttlSeconds: this.config.ttlSeconds, maxMediaMiB: this.config.maxMediaMiB,
       maxTotalMiB: this.config.maxTotalMiB, cleanupFailed: this.cleanupFailed };
@@ -91,7 +95,7 @@ export class Vision implements VisionService {
     return this.operation(async signal => {
       const o = object(input);
       const session = identity(o.sessionId), ref = reference(o.mediaRef);
-      return this.store.use(session, ref, signal, entry => prepareMedia(entry, input, this.decoder, signal));
+      return this.store.use(session, ref, signal, entry => prepareMedia(entry, input, this.decoder, signal, this.config.visual));
     }, options);
   }
   understand(input: UnderstandInput, options?: CallOptions): Promise<UnderstoodMedia> {
@@ -109,7 +113,7 @@ export class Vision implements VisionService {
         const result: UnderstoodMedia = { mediaRef: ref, info: { ...entry.info }, status: 'completed',
           audio: { status: tasks.length ? 'no_audio' : 'not_requested', coverage: range, tasks: [] } };
         if (visual) {
-          try { result.visual = await prepareMedia(entry, input, this.decoder, signal); }
+          try { result.visual = await prepareMedia(entry, input, this.decoder, signal, this.config.visual); }
           catch (error) { signal.throwIfAborted(); result.visualError = safeError(error); }
         }
         if (range) {
@@ -134,12 +138,16 @@ export class Vision implements VisionService {
   release(input: { sessionId: string; mediaRef: string }, options?: CallOptions) {
     return this.operation(async () => { const o = object(input); return this.store.release(identity(o.sessionId), reference(o.mediaRef)); }, options);
   }
+  captureScreen(input: ScreenInput, options?: CallOptions) {
+    return this.operation(signal => this.screen.capture(input, signal, { ...visualDefaults, ...this.config.visual }), options);
+  }
   stop(): Promise<void> {
     if (this.stopPromise) return this.stopPromise;
     this.closed = true;
     this.controller.abort();
     if (this.timer) clearInterval(this.timer);
     this.stopPromise = (async () => {
+      await this.screen.stop();
       await this.audio?.stop();
       await Promise.allSettled([...this.pending]);
       try { await this.store.stop(); } catch (error) { this.cleanupFailed = true; throw error; }

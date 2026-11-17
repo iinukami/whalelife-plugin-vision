@@ -1,6 +1,6 @@
 # vision 服务契约
 
-插件版本 0.2.0，插件 ID 保持 `vision`。原有视觉服务版本 `1.0.0` 继续兼容；新增视听扩展 `audiovisualApiVersion:"1.0.0"` 和 `understand()`。公开类型见 `src/types.ts` 与 `src/audio-types.ts`。旧 `prepare()` / `vision_view` 不包含声音，保留 `audioIncluded:false`。
+插件版本 0.3.0，插件 ID 保持 `vision`。原有视觉服务版本 `1.0.0` 和视听扩展 `audiovisualApiVersion:"1.0.0"` 继续兼容。公开类型见 `src/types.ts` 与 `src/audio-types.ts`。旧 `prepare()` / `vision_view` 不包含声音，保留 `audioIncluded:false`。
 
 ## 依赖、授权和来源
 
@@ -26,6 +26,20 @@
 `PrepareInput` 包含 `sessionId`、`mediaRef`，以及可选 `fromSeconds`、`toSeconds`、`atSeconds`、`detail`、`layout`、`crop`。`detail` 为 `overview|detail`，`layout` 为 `frames|sheet`，默认概览独立图片。裁剪 x/y/width/height 使用转正画面的 0–1 比例，不能越界。
 
 时间段为 `[fromSeconds,toSeconds)`；默认从 0 起处理最多 30 秒，单次最大 60 秒，不越过结尾。`atSeconds` 与时间段互斥，且早于结尾；静态图不接受时间参数。图片返回实际尺寸、编号、采样时间及拼图区域。`coverage` 记录范围、下一段、采样网格及省略数，`timelineComplete:false`；采样位置不能当作逐帧精确事件时间。GIF/WebP 按帧延时选帧，缺失延时时声明估算。
+
+0.3.0 为 `PrepareInput` / `UnderstandInput` 兼容增加可选 `focus:'whole'|'auto'`、`maxFrames:2..8`（整数）、`sampleFps:1|2|4|6`。本次参数优先于 `config.visual`，再沿用旧默认。`config.visual` 可设 `detail:'auto'|'overview'|'detail'`、`layout:'frames'|'sheet'` 及上述三个参数；默认 `auto/frames/whole/8/2`。画质配置 auto 时仍为概览640、atSeconds细看1600；显式 detail 优先。旧配置不自动插入新对象，旧设置客户端缺省 visual/screen 时保留已保存值，配置修改仍需重载。
+
+自动聚焦只分析当前媒体所选范围，不读取旧画面。存在可靠持续变化区域、且预算允许时追加一张原比例细节图，首尾全景仍保留。`PreparedMedia.focus` 可选，含 `{mode,applied,reason}`；`images[].frames[]` 可选增加 `role:'overview'|'focus'`、原画归一化 `crop`。局部图保留来源时刻，`PreparedMedia.crop` 仍只表示显式裁剪；手动裁剪优先。画面预算包括全景和附加细节，拼图中的每个画面也计入；静态、单时刻、不可靠变化及预算不足不伪造建议。采样间隔返回实际值，快速动作仍可能遗漏。
+
+## 按需看屏工具
+
+`screen_view` 使用同一公开临时多模态工具接口；无此接口时不注册。参数为 `mode?:'snapshot'|'observe'`、`target?:'screen'|'window'`、`seconds?:number`（observe 为2–60）。不接收会话ID、路径或脚本。真实会话从工具上下文固定，缺少会话拒绝；调用取消信号和插件停用信号传到采集进程。
+
+`config.screen` 为 `{enabled:boolean,target:'screen'|'window',seconds:number}`，默认 `false/window/10`。enabled 关闭时不启动采集；启动插件、读取状态和配置保存均不采集。仅支持 Windows，screen 指主屏幕，window 固定采集开始时的窗口并跟随其位置，只能采集可见区域，不承诺遮挡内容。窗口失效或无法采集时明确失败。
+
+看屏图片只在本次调用内存中存在，返回真实采样时间和覆盖信息，无持久截图、旧图复用、媒体路径或跨会话缓存。`coverage.requestedSampleIntervalSeconds` 只表示目标间隔，负载可能令实际间隔变长；实际画面时刻以 `selectedTimes` 为准，`observedSeconds` 为首尾实际时差。完整 observe 时段采集后在有限预算中选帧；一次只允许一个看屏任务，忙时拒绝，取消等待子进程退出。图像以独立原比例 JPEG 提供，不含声音，不能回溯调用前内容。工具回执只保留动作、结果、模式、目标种类和图片数量，原图和描述不进入回执。主模型云端连接会接收截图，普通最终回答及显式启用的宿主诊断遵循宿主保留规则。
+
+`status()` 兼容增加实际 `visual` 设置及 `screen` 的开关、平台支持和繁忙状态；平台支持不证明真实桌面采集或所选模型已经验收。看屏未扩展跨插件媒体服务，外部来源仍沿用已有媒体引用方法。
 
 ## 视听理解输入和时间
 

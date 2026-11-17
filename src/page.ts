@@ -9,16 +9,37 @@ export const settingsPage = `<!doctype html><html lang="zh-CN"><meta charset="ut
 .panel{border:1px solid var(--line);border-radius:12px;margin:12px 0;overflow:hidden}summary{cursor:pointer;padding:17px 20px;font-weight:600;list-style:none;display:flex;align-items:center;gap:10px}summary::-webkit-details-marker{display:none}summary:before{content:'›';font-size:20px;line-height:1;color:var(--muted);transition:transform .15s}details[open]>summary:before{transform:rotate(90deg)}summary .pill{margin-left:auto;flex-shrink:0}summary:hover{background:var(--soft)}.panel-body{padding:0 20px 20px;border-top:1px solid var(--line)}.section{padding-top:18px}.section+.section{margin-top:18px;border-top:1px solid var(--line)}.row{display:grid;grid-template-columns:172px minmax(0,1fr);gap:16px;margin:12px 0;align-items:center}.field-help{margin:0 0 12px 188px;color:var(--muted);font-size:13px}.warning{color:var(--warn);font-size:13px}.optional{font-size:12px;font-weight:400;color:var(--muted);margin-left:7px}input,select{width:100%;font:inherit;font-size:14px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;min-width:0;background:var(--paper);color:var(--ink)}select{cursor:pointer}button,.link-button{font:inherit;font-size:14px;border:1px solid var(--line);border-radius:8px;padding:9px 16px;cursor:pointer;background:var(--paper);color:var(--accent);text-decoration:none;display:inline-block}button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}button:disabled{opacity:.5;cursor:default}a{color:var(--accent)}:focus-visible{outline:3px solid #69aaa3;outline-offset:3px}.actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.save-area{margin-top:22px;padding:18px 0 4px;border-top:1px solid var(--line)}.save-area p{font-size:13px;white-space:pre-wrap}.save-area [role="alert"]{color:var(--warn)}progress{width:100%;height:9px;accent-color:var(--accent)}.technical{padding:12px 14px;background:var(--soft);border-radius:8px;font-size:12px;color:var(--muted);overflow-wrap:anywhere}.footnote{font-size:12px;color:var(--muted);margin:18px 0 0}.resource-title{display:flex;gap:10px;align-items:center;margin-top:16px}.resource-title strong{font-size:14px}
 @media(prefers-color-scheme:dark){:root{--ink:#e3eeec;--muted:#9db1ae;--line:#344846;--paper:#182321;--soft:#22322e;--accent:#8cd5c4;--wash:#203b32;--warn:#edc68f;--warn-bg:#3b3123}button.primary{color:#142b25}}
 @media(max-width:560px){body{padding:22px 16px}.hero{padding:18px}.row{grid-template-columns:1fr;gap:6px}.field-help{margin-left:0}summary{padding:15px}.panel-body{padding:0 15px 16px}.capability{grid-template-columns:86px 1fr;gap:8px}.save-area .actions{align-items:stretch}.link-button{text-align:center}}
+.capability-groups{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:18px}.capability-group{min-width:0}.capability-group h3{font-size:13px;color:var(--muted);margin:0}.capability-groups .capabilities{margin:7px 0 0}.capability dd{overflow-wrap:anywhere}.current-settings{margin-top:16px}.panel-note{margin-top:16px}@media(max-width:680px){.capability-groups{grid-template-columns:1fr;gap:20px}}
 </style>
 <header><h1>视听理解</h1><p class="intro muted">一起看，一起听。继续由当前主模型理解并与你交流。</p></header>
 <section class="hero" id="hero" aria-labelledby="state"><div class="eyebrow">当前能力</div><h2 id="state">正在检查…</h2><p id="detail">正在读取实际运行状态。</p>
-<dl class="capabilities">
+<div class="capability-groups"><section class="capability-group" aria-labelledby="visualHeading"><h3 id="visualHeading">画面</h3><dl class="capabilities">
+<div class="capability"><dt>图片查看</dt><dd><span id="imageState">检查中</span><small id="imageHint">由当前主模型看图，模型本身须支持图片。</small></dd></div>
+<div class="capability"><dt>视频画面</dt><dd><span id="videoState">检查中</span><small>按时间采样，快速变化可能遗漏。</small></dd></div>
+<div class="capability"><dt>按需看屏</dt><dd><span id="screenState">检查中</span><small id="screenHint">默认关闭；没有调用时不采集。</small></dd></div>
+</dl></section><section class="capability-group" aria-labelledby="audioHeading"><h3 id="audioHeading">声音</h3><dl class="capabilities">
 <div class="capability"><dt>语音识别</dt><dd><span id="speechState">检查中</span><small id="speechHint">识别说话和歌词，整理成文字。</small></dd></div>
 <div class="capability"><dt>音乐分析</dt><dd><span id="musicState">检查中</span><small>节奏、音高和和弦仅作参考，不保证准确扒谱。</small></dd></div>
 <div class="capability"><dt>环境声理解</dt><dd><span id="soundState">检查中</span><small>可选云端能力，用于描述环境中的声音。</small></dd></div>
-</dl></section>
+</dl></section></div></section>
 <form id="settings">
-<details class="panel" id="processing"><summary>处理方式与云端能力<span class="pill">按需调整</span></summary><div class="panel-body">
+<details class="panel" id="visualSettings" open><summary>图片与视频画面<span class="pill">当前主模型理解</span></summary><div class="panel-body">
+<p class="hint panel-note">调整交给当前主模型的画面，不另选视觉模型。具体查看任务指定的画质和布局优先于这里的默认设置。</p>
+<label class="row">默认画质<select name="visualDetail"><option value="auto">自动 · 按查看任务选择</option><option value="overview">概览 · 减少画面大小</option><option value="detail">细节 · 保留更多细节</option></select></label><p class="field-help" id="visualDetailHelp"></p>
+<label class="row">多帧布局<select name="visualLayout"><option value="frames">独立画面</option><option value="sheet">拼图概览</option></select></label><p class="field-help" id="visualLayoutHelp"></p>
+<label class="row">观察重点<select name="visualFocus"><option value="whole">全景优先</option><option value="auto">全景 + 自动变化细节</option></select></label><p class="field-help" id="visualFocusHelp"></p>
+<p class="technical current-settings" id="visualCurrent">正在读取当前画面处理设置。</p>
+</div></details>
+<details class="panel" id="screenSettings"><summary>按需看屏<span class="pill" id="screenBadge">默认关闭</span></summary><div class="panel-body">
+<p class="hint panel-note">开启并重载后，AI 可以按需看当前画面，或观察接下来的一段时间。未调用时不采集，不在后台常驻监听。采集画面会交给当前主模型，模型本身须支持图片。</p>
+<p class="hint">若当前主模型使用云端服务，截图会发送给该模型提供商。本插件不落盘保存看屏截图；普通最终回答及显式开启的诊断输出（可能包含截图等模型输入）仍按宿主规则保留。</p>
+<p class="hint">看屏使用画质与高级采样设置；多帧布局和自动变化细节只用于已有图片、动画或视频。</p>
+<label class="row">允许按需看屏<select name="screenEnabled"><option value="false">关闭</option><option value="true">开启</option></select></label>
+<div id="screenOptions" hidden><label class="row">默认采集目标<select name="screenTarget"><option value="window">采集开始时的前台窗口</option><option value="screen">主屏幕</option></select></label><p class="field-help" id="screenTargetHelp"></p>
+<label class="row">默认观察时长（秒）<input name="screenSeconds" type="number" min="2" max="60" step="1" required></label><p class="field-help">用于观察后续变化，默认 10 秒，最长 60 秒；查看当前画面不需要等待这一时长。</p></div>
+<p class="warning" id="screenWarning" hidden></p><p class="hint" id="screenCurrent">正在读取实际看屏状态。</p>
+</div></details>
+<details class="panel" id="processing"><summary>声音处理与云端能力<span class="pill">按需调整</span></summary><div class="panel-body">
 <div class="section"><h2>语音与歌词</h2><label class="row">语音与歌词转写<select name="speechBackend"><option value="local">轻量本地识别</option><option value="cloud">云端语音识别</option></select></label>
 <p class="field-help" id="speechModeHelp"></p><div id="speechCloud" hidden><label class="row">云端转写模型<select name="speechModelId"><option value="">尚未选择</option></select></label><p class="field-help">选择主干模型设置中的 STT（语音转文字）连接，使用 OpenAI 兼容转写接口。</p><p class="warning" id="speechWarning" hidden>还没有选择转写模型，云端语音识别暂时无法使用。</p></div></div>
 <div class="section"><h2>音乐</h2><label class="row">音乐专项分析<select name="musicBackend"><option value="local">本地特征估计</option><option value="cloud">云端音频理解</option></select></label><p class="field-help" id="musicModeHelp"></p></div>
@@ -32,27 +53,40 @@ export const settingsPage = `<!doctype html><html lang="zh-CN"><meta charset="ut
 <div class="actions"><button type="button" id="prepare" disabled>一键准备本地能力</button><span id="prepareNotice" class="hint" role="status"></span></div>
 <details id="downloadSettings" class="section"><summary>下载设置与组件详情</summary><label class="row">资源下载代理<input name="resourceProxyUrl" type="url" maxlength="500" placeholder="留空直连，例如 http://127.0.0.1:7890"></label><p class="field-help">只影响本地语音资源下载，不改变模型连接。支持不含用户名密码的 HTTP/HTTPS 地址；修改后先保存并重载。</p><p id="localDetail" class="technical"></p></details>
 </div></details>
-<details class="panel" id="advanced"><summary>高级设置<span class="pill">通常无需修改</span></summary><div class="panel-body"><div class="section"><h2>临时媒体</h2><p class="hint">控制音视频临时文件的保留时间和占用，不影响聊天记忆。媒体按会话隔离，过期或停用后清理。</p>
+<details class="panel" id="advanced"><summary>高级设置<span class="pill">通常无需修改</span></summary><div class="panel-body"><div class="section"><h2>画面采样</h2>
+<label class="row">最多选取画面数<input name="visualMaxFrames" type="number" min="2" max="8" step="1" required></label><p class="field-help">每段最多选取 2–8 帧，再按所选布局提供；实际画面更少时不会补足。</p>
+<label class="row">采样密度<select name="visualSampleFps"><option value="1">每秒 1 次</option><option value="2">每秒 2 次（默认）</option><option value="4">每秒 4 次</option><option value="6">每秒 6 次</option></select></label><p class="field-help">提高密度可发现更短的变化，也会增加本机处理量；不等于把所有采样画面发给模型，仍可能遗漏快速动作。</p>
+</div><div class="section"><h2>临时媒体</h2><p class="hint">控制来源图片与音视频临时文件的保留时间和占用，不影响聊天记忆。媒体按会话隔离，过期或停用后清理。看屏截图不进入此缓存，本插件不落盘保存截图。</p>
 <label class="row">引用有效期（秒）<input name="ttlSeconds" type="number" min="30" max="7200" required></label><p class="field-help">1800 秒为 30 分钟。过期后继续查看，需要重新取得媒体。</p>
 <label class="row">单文件上限（MiB）<input name="maxMediaMiB" type="number" min="1" max="64" required></label><label class="row">总容量上限（MiB）<input name="maxTotalMiB" type="number" min="1" max="512" required></label><p class="field-help">总容量统计所有会话的临时媒体，不能小于单文件上限。</p></div><div class="technical"><p id="decoder"></p><p id="usage"></p></div></div></details>
 <div class="save-area"><div class="actions"><button id="save" class="primary" type="submit" disabled>保存设置</button><span id="saveState" class="pill">正在读取</span><a id="manage" class="link-button" href="/#plugins" target="_top" hidden>前往插件管理重载</a></div><p id="notice" class="muted" role="status">保存配置后，重载插件才会生效。</p><p id="saveError" role="alert" hidden></p></div>
 </form>
-<p class="footnote">默认每次看听 30 秒，单次最多 60 秒，可继续分段处理。当前主模型收到画面与声音文字资料；选择本地识别时，转写文字仍会交给主模型。</p>
-<details class="panel"><summary>理解范围与使用说明</summary><div class="panel-body"><p class="hint">来源插件负责取得媒体；这页显示处理能力，不代表网页或平台媒体已完成接入。视频画面通过采样观察，快速动作可能遗漏。歌词识别可能受伴奏影响，本地音乐分析不等于完整乐谱或确定的段落标签。</p><p class="hint">具备多模态接口的宿主将画面交给当前主模型；旧宿主显示主模型查看暂不可用。所选主模型仍须支持图片。主模型没有直接收到原音频。</p></div></details>
+<p class="footnote">已有音视频默认每次看听 30 秒，单次最多 60 秒，可继续分段处理。当前主模型收到画面与声音文字资料；选择本地识别时，转写文字仍会交给主模型。</p>
+<details class="panel"><summary>理解范围与使用说明</summary><div class="panel-body"><p class="hint">网页与平台媒体仍由来源插件取得；这页显示处理能力，不代表这些来源已完成接入。按需看屏只采集当前可见画面，窗口内容会受遮挡，不能取得被遮挡或最小化窗口的隐藏内容。歌词识别可能受伴奏影响，本地音乐分析不等于完整乐谱或确定的段落标签。</p><p class="hint">具备多模态接口的宿主将画面交给当前主模型；旧宿主显示主模型查看暂不可用。所选主模型仍须支持图片，页面不会调用模型测试连接。主模型没有直接收到原音频。临时媒体不作为长期收藏，普通聊天最终回答仍按宿主规则保存。</p></div></details>
 <script type="module">
 const $=selector=>document.querySelector(selector),form=$('#settings'),save=$('#save'),prepare=$('#prepare');
 const text=(selector,value)=>{$(selector).textContent=value;},show=(selector,value)=>{$(selector).hidden=!value;},field=name=>form.elements.namedItem(name);
 const mib=n=>((Number(n)||0)/1048576).toFixed(1)+' MiB';
 let revision,latest,savedSnapshot='',savedProxy='',initialized=false,loading=false,saving=false,preparing=false,online=false,resourceAttention=false,prepareMessage='';
-function readConfig(){const values=Object.fromEntries(new FormData(form));return {ttlSeconds:Number(values.ttlSeconds),maxMediaMiB:Number(values.maxMediaMiB),maxTotalMiB:Number(values.maxTotalMiB),audio:{speechBackend:values.speechBackend,speechModelId:values.speechModelId,understandingModelId:values.understandingModelId,musicBackend:values.musicBackend,resourceProxyUrl:values.resourceProxyUrl}};}
+function readConfig(){const values=Object.fromEntries(new FormData(form));return {ttlSeconds:Number(values.ttlSeconds),maxMediaMiB:Number(values.maxMediaMiB),maxTotalMiB:Number(values.maxTotalMiB),visual:{detail:values.visualDetail,layout:values.visualLayout,focus:values.visualFocus,maxFrames:Number(values.visualMaxFrames),sampleFps:Number(values.visualSampleFps)},screen:{enabled:values.screenEnabled==='true',target:values.screenTarget,seconds:Number(values.screenSeconds)},audio:{speechBackend:values.speechBackend,speechModelId:values.speechModelId,understandingModelId:values.understandingModelId,musicBackend:values.musicBackend,resourceProxyUrl:values.resourceProxyUrl}};}
 function dirty(){return initialized&&JSON.stringify(readConfig())!==savedSnapshot;}
 function loadForm(data){
  const choices=data.models||[];
  for(const name of ['speechModelId','understandingModelId']){const select=field(name),selected=(data.config.audio||{})[name]||'';select.replaceChildren(new Option('尚未选择',''));for(const model of choices.filter(m=>name==='speechModelId'?m.type==='stt':m.type==='chat'||m.type==='custom'))select.add(new Option(model.name,model.id));if(selected&&!Array.from(select.options).some(o=>o.value===selected))select.add(new Option('原配置不可用 · '+selected,selected));}
  const values={...data.config,...data.audioDefaults,...(data.config.audio||{})};for(const [name,value]of Object.entries(values)){const input=field(name);if(input)input.value=value;}
+ const visual={...data.visualDefaults,...(data.config.visual||{})},screen={...data.screenDefaults,...(data.config.screen||{})};
+ for(const [name,value]of Object.entries(visual)){const input=field('visual'+name[0].toUpperCase()+name.slice(1));if(input)input.value=value;}
+ for(const [name,value]of Object.entries(screen)){const input=field('screen'+name[0].toUpperCase()+name.slice(1));if(input)input.value=String(value);}
  revision=data.revision;savedSnapshot=JSON.stringify(readConfig());savedProxy=field('resourceProxyUrl').value;initialized=true;
 }
 function updateForm(){
+ const visualDetail=field('visualDetail').value,visualFocus=field('visualFocus').value,screenEnabled=field('screenEnabled').value==='true',screen=latest?.status.screen;
+ text('#visualDetailHelp',visualDetail==='detail'?'更适合小字与局部细节；画面与模型用量可能增加。':visualDetail==='overview'?'更适合先了解整体内容；小字或复杂细节可再指定高清查看。':'按查看任务选择概览或细节；模型仍可在调用时明确指定画质。');
+ text('#visualLayoutHelp',field('visualLayout').value==='sheet'?'将多帧排成一张拼图，便于概览；文字与细节可能缩小。':'每帧独立提供，保留各自的时间位置，便于逐帧理解。');
+ text('#visualFocusHelp',visualFocus==='auto'?'保留全景，并根据画面变化补充细节区域；自动选择可能遗漏需要关注的内容。':'优先保留完整画面；需要看清局部时，可由模型明确指定裁剪区域。');
+ show('#screenOptions',screenEnabled);text('#screenTargetHelp',field('screenTarget').value==='window'?'以采集开始时的前台窗口为目标，只能看到当前可见部分，内容会受遮挡。':'采集主屏幕当前可见的内容，包括其上的窗口。');
+ const screenWarning=screenEnabled&&screen?.supported===false?'当前平台不支持看屏；保存开关不会使该能力可用。':screenEnabled&&!latest?.status.mainModelViewing?'当前宿主尚不支持主模型查看图片；开启看屏仍需对应的多模态接口。':'';
+ show('#screenWarning',!!screenWarning);text('#screenWarning',screenWarning);
  const cloudSpeech=field('speechBackend').value==='cloud',cloudMusic=field('musicBackend').value==='cloud';
  show('#speechCloud',cloudSpeech);show('#speechWarning',cloudSpeech&&!field('speechModelId').value);show('#musicWarning',cloudMusic&&!field('understandingModelId').value);
  text('#speechModeHelp',cloudSpeech?'将音频片段上传给下方转写模型。':'在这台电脑识别，无需配置云端转写模型。');
@@ -71,15 +105,22 @@ function updateForm(){
 function render(data){
  latest=data;online=true;if(!initialized)loadForm(data);
  const s=data.status,a=s.audio?.unavailable?undefined:s.audio,local=a?.local||{},decoderReady=!!s.decoder?.ready,busy=['checking','downloading','extracting','installing','verifying','preparing'].includes(local.phase);
- const localSpeech=a?.speechBackend==='local',speechReady=!!a&&decoderReady&&(localSpeech?local.ready:a.speechCloudConfigured);
+ const localSpeech=a?.speechBackend==='local',screen=s.screen,visual=s.visual,imageReady=!!s.mediaPreparation&&!!s.mainModelViewing;
+ text('#imageState',!s.mediaPreparation?'媒体处理暂不可用':s.mainModelViewing?'宿主图片接口已支持':'主模型查看暂不可用');
+ text('#imageHint',s.mainModelViewing?'当前主模型仍须支持图片；此处未测试模型连接。':'媒体准备与主模型查看分开；需要宿主多模态接口。');
+ text('#videoState',!s.mediaPreparation?'媒体处理暂不可用':!decoderReady?'解码组件未就绪':s.mainModelViewing?'画面采样已就绪':'可准备画面 · 等待宿主接口');
+ const screenState=!screen?'看屏状态暂不可用':!screen.supported?'当前平台不支持':!screen.enabled?'未开启':screen.busy?'正在采集':!s.mediaPreparation?'媒体处理暂不可用':!s.mainModelViewing?'已开启 · 等待宿主接口':'已开启 · 按需采集';
+ text('#screenState',screenState);text('#screenBadge',!screen?'暂不可用':!screen.supported?'平台不支持':screen.busy?'采集中':screen.enabled?'已开启':'未开启');$('#screenBadge').dataset.tone=screen?.busy?'warn':screen?.enabled&&screen.supported?'ready':'';
+ text('#screenHint',screen?.busy?'当前调用结束后停止采集，不持续监听。':'没有调用时不采集；由当前主模型看图。');
+ text('#screenCurrent','当前运行：'+screenState+'。设置变更需保存并重载后生效。');
+ text('#visualCurrent',visual?'当前运行：'+({auto:'自动画质',overview:'概览画质',detail:'细节画质'}[visual.detail]||'未识别画质')+' · '+(visual.layout==='sheet'?'拼图概览':'独立画面')+' · '+(visual.focus==='auto'?'全景 + 自动变化细节':'全景优先')+' · 最多 '+visual.maxFrames+' 帧 · 每秒 '+visual.sampleFps+' 次采样。':'当前运行的画面设置暂不可用。');
  text('#speechState',!a?'暂不可用':!decoderReady?'解码组件未就绪':localSpeech?(local.ready?'已就绪 · 本地识别':busy?'准备中 · 本地识别':'尚未就绪 · 本地识别'):(a.speechCloudConfigured?'已选择云端模型':'待选择云端转写模型'));
  text('#speechHint',localSpeech?'识别说话和歌词，转成文字后交给当前主模型。':'连接与音频协议将在实际调用时检查，当前未测试。');
  text('#musicState',!a||!decoderReady?'暂不可用':a.musicBackend==='local'?'可用 · 本地基础估计':a.understandingCloudConfigured?'已选择云端模型':'待选择云端理解模型');
  text('#soundState',!a||!decoderReady?'暂不可用':a.understandingCloudConfigured?'已选择云端模型 · 调用时检查兼容性':'未配置 · 可选云端能力');
- const good=s.mediaPreparation&&s.mainModelViewing&&speechReady;
- $('#hero').dataset.tone=good?'ready':'warn';
- text('#state',!s.mediaPreparation?'媒体处理暂不可用':!s.mainModelViewing?'当前宿主的主模型查看暂不可用':!decoderReady?'音视频解码组件需要检查':!a?'声音处理暂不可用':localSpeech?(local.ready?'本地语音已就绪，可以使用':busy?'正在准备本地语音':'使用本地语音前，还需准备资源'):(a.speechCloudConfigured?'已选择云端语音处理':'还需选择云端转写模型'));
- text('#detail',!s.mediaPreparation||!a?(s.error||s.audio?.error||'请查看资源状态与运行详情。'):data.pendingReload?'设置已保存，重载后生效。下方显示当前正在运行的能力。':good?(localSpeech?'当前语音使用本地识别，无需额外配置。云端能力可按需添加。':'音频片段将交给所选云端服务；保存配置不代表连接已通过测试。'):!s.mainModelViewing?'请检查宿主多模态接口支持；媒体准备服务仍按实际状态提供。':!decoderReady?'图片仍可使用，请检查完整安装包。':'展开对应设置查看需要完成的步骤。');
+ $('#hero').dataset.tone=imageReady&&decoderReady?'ready':'warn';
+ text('#state',!s.mediaPreparation?'媒体处理暂不可用':!s.mainModelViewing?'媒体准备可用，主模型查看需宿主支持':!decoderReady?'图片准备可用，音视频解码需检查':'画面准备已就绪，声音能力按需选择');
+ text('#detail',!s.mediaPreparation?(s.error||'请查看下方运行详情。'):data.pendingReload?'设置已保存，重载后生效。下方显示当前正在运行的能力。':!s.mainModelViewing?'主模型查看等待宿主多模态接口；各项声音处理能力独立显示。':'画面由当前主模型理解，模型本身须支持图片。语音资源未准备不影响图片查看；'+(screen?.enabled?'看屏仅在调用时采集。':'看屏需另外开启。'));
  text('#resourceBadge',!a?'暂不可用':local.ready?'已准备':busy?'准备中':local.supported===false?'当前平台不支持':local.phase==='error'?'需要处理':'尚未准备');$('#resourceBadge').dataset.tone=local.ready?'ready':(localSpeech||local.error)?'warn':'';
  text('#localState',!a?'声音模块暂不可用':local.ready?'本地语音资源已就绪':busy?'正在准备本地语音':local.supported===false?'当前平台不支持本地语音':'尚未准备本地语音资源');
  text('#localHelp',!a?'请检查下方错误信息；图片处理能力仍按实际运行状态提供。':local.ready?'无需重复下载。她可以在需要时自主调用本地识别。':busy?'正在下载、校验并安装组件，请留意下方进度。':local.supported===false?'本地语音当前支持 Windows x64；可按需配置云端语音识别。':'点击按钮才会下载组件和模型；音乐基础分析不需要这些资源。');
