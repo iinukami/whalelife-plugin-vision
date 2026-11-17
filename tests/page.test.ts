@@ -80,6 +80,7 @@ async function page(initial = fixtureState()) {
   let poll: (() => unknown) | undefined, timer = false;
   const exits: (() => unknown)[] = [];
   const controls = { failRead: false, failPrepare: false, failApply: false, failReadAfterSave: false, failPost: false, wrongAppliedRevision: false,
+    failOllama: '', ollamaGate: undefined as Promise<void> | undefined,
     applyGate: undefined as Promise<void> | undefined, stateGate: undefined as Promise<void> | undefined };
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
   const applySaved = async () => {
@@ -91,7 +92,8 @@ async function page(initial = fixtureState()) {
     delete state.applyError; state.pendingReload = false; state.appliedRevision = controls.wrongAppliedRevision ? 'outdated-revision' : state.revision;
     state.status.screen = { ...state.status.screen, ...state.config.screen };
     state.status.visual = structuredClone(state.config.visual);
-    state.status.localVision = { backend: state.config.visualUnderstanding?.backend ?? 'main', configured: !!state.config.visualUnderstanding?.modelId, busy: false };
+    state.status.localVision = { backend: state.config.visualUnderstanding?.backend ?? 'main', source: state.config.visualUnderstanding?.source ?? 'connection',
+      configured: state.config.visualUnderstanding?.source === 'managed' || !!state.config.visualUnderstanding?.modelId, busy: false };
     state.status.localDescriptionTools = state.status.localVision.backend === 'ollama';
     state.status.audio = { ...state.status.audio, ...state.config.audio };
     return json({ ok: true, saved: true, applied: true, reloadRequired: false, revision: state.revision });
@@ -119,6 +121,19 @@ async function page(initial = fixtureState()) {
       Object.assign(state.status.audio.local, { phase: 'downloading', downloadBytes: 1024 });
       return json({ ok: true }, 202);
     }
+    if (path.startsWith('/plugins/vision/ollama/') && method === 'POST') {
+      const action = path.slice('/plugins/vision/ollama/'.length);
+      assert.deepEqual(body, {});
+      if (controls.failOllama === action) return json({ ok: false, code: 'synthetic_ollama_failure', error: '合成 Ollama 操作失败' }, 400);
+      const changes: Record<string, Record<string, unknown>> = {
+        check: { busy: true, phase: 'checking' }, prepare: { busy: true, phase: 'downloading_runtime', downloadedBytes: 1048576, totalBytes: 8388608 },
+        start: { busy: true, phase: 'starting' }, stop: { busy: false, phase: 'stopped', running: false, owned: false, cleanupPending: false }, cancel: { busy: false, phase: 'idle' },
+      };
+      assert.ok(changes[action], 'only explicit known manager operations are permitted');
+      Object.assign(state.ollamaSetup, changes[action]); delete state.ollamaSetup.error;
+      const response = json({ ok: true, state: state.ollamaSetup }, 202), gate = controls.ollamaGate;
+      controls.ollamaGate = undefined; await gate; return response;
+    }
     throw Error('Unexpected request: ' + method + ' ' + path);
   };
   class FormDataFixture extends Map<string, string> {
@@ -139,6 +154,7 @@ async function page(initial = fixtureState()) {
     apply: () => element('apply').emit('click'),
     navigate: () => element('manage').emit('click'),
     prepare: () => element('prepare').emit('click'),
+    ollama: (action: 'check' | 'prepare' | 'start' | 'stop' | 'cancel') => element('ollama' + action[0].toUpperCase() + action.slice(1)).emit('click'),
     async poll() { assert.ok(poll); poll(); await new Promise<void>(done => setImmediate(done)); },
     close() { for (const fn of exits) fn(); assert.equal(timer, false); }
   };
@@ -384,7 +400,7 @@ function applicableState(): any {
 test('save and apply confirms the returned running revision and distinguishes drafts from both directions of actual state', async t => {
   const h = await page(applicableState()); t.after(() => h.close());
   assert.equal(h.element('save').textContent, '保存并生效');
-  assert.match(settingsPage, /使设置生效会取消本插件正在处理的任务和资源下载，并清理旧媒体引用/);
+  assert.match(settingsPage, /使设置生效会取消本插件正在处理的视听任务和声音资源下载，并清理旧媒体引用.*Ollama 准备独立进行，不会因此取消/);
   await h.edit('screenEnabled', 'true'); await h.edit('visualUnderstandingBackend', 'ollama'); await h.edit('localVisionModelId', 'saved-omni');
   assert.match(h.element('screenState').textContent, /未开启.*待开启（未保存）/);
   assert.match(h.element('screenCurrent').textContent, /当前运行：未开启.*未保存：开启/);
@@ -502,4 +518,185 @@ test('a polling response started before save cannot overwrite the newly confirme
   assert.equal(h.element('saveState').textContent, '设置已生效'); assert.match(h.element('screenState').textContent, /已开启/);
   release(); await new Promise<void>(resolve => setImmediate(resolve));
   assert.equal(h.element('saveState').textContent, '设置已生效'); assert.match(h.element('screenState').textContent, /已开启/);
+});
+
+function managedVisionState(): any {
+  const state = applicableState();
+  state.config.visualUnderstanding = { backend: 'ollama', source: 'managed', modelId: 'saved-omni', maxTokens: 512 };
+  state.status.localVision = { backend: 'ollama', source: 'managed', configured: true, busy: false };
+  state.status.localDescriptionTools = true;
+  state.ollamaSetup = { supported: true, busy: false, phase: 'idle', installed: false, owned: false,
+    model: 'qwen3-vl:2b', downloadedBytes: 0, totalBytes: 0 };
+  return state;
+}
+
+test('managed and connection sources preserve the hidden connection, while legacy main saves omit the new source', async t => {
+  const legacy = await page(applicableState()); t.after(() => legacy.close());
+  assert.equal(legacy.field('localVisionSource').value, 'connection');
+  await legacy.edit('ttlSeconds', '1200'); await legacy.submit();
+  assert.equal(Object.hasOwn(legacy.requests.find(r => r.path.endsWith('/config'))!.body.config.visualUnderstanding, 'source'), false);
+  assert.equal(legacy.requests.some(r => r.path.includes('/ollama/')), false);
+
+  const initial = managedVisionState(); delete initial.config.visualUnderstanding.source;
+  initial.status.localVision.source = 'connection';
+  const h = await page(initial); t.after(() => h.close());
+  assert.equal(h.field('localVisionSource').value, 'connection');
+  await h.edit('localVisionSource', 'managed'); await h.edit('localVisionMaxTokens', '768');
+  assert.equal(h.element('localVisionConnection').hidden, true); assert.equal(h.element('ollamaSetup').hidden, false);
+  assert.equal(h.field('localVisionModelId').value, 'saved-omni'); assert.equal(h.field('localVisionModelId').disabled, false);
+  await h.submit();
+  const managed = h.requests.filter(r => r.path.endsWith('/config')).at(-1)!.body.config;
+  assert.deepEqual(managed.visualUnderstanding, { backend: 'ollama', modelId: 'saved-omni', maxTokens: 768, source: 'managed' });
+  assert.deepEqual(managed.audio, initial.config.audio);
+  assert.match(h.element('localVisionCurrent').textContent, /插件准备的 qwen3-vl:2b/);
+  await h.edit('localVisionSource', 'connection'); await h.submit();
+  const connection = h.requests.filter(r => r.path.endsWith('/config')).at(-1)!.body.config;
+  assert.deepEqual(connection.visualUnderstanding, { backend: 'ollama', modelId: 'saved-omni', maxTokens: 768 });
+  assert.equal(h.element('localVisionConnection').hidden, false); assert.equal(h.element('ollamaSetup').hidden, true);
+  assert.equal(h.requests.some(r => r.path.includes('/ollama/')), false, 'source selection and saving never prepare or start Ollama');
+});
+
+test('managed mode does not require a connection ID and never calls unchecked service or model status ready', async t => {
+  const initial = managedVisionState(); initial.config.visualUnderstanding.modelId = '';
+  const h = await page(initial); t.after(() => h.close());
+  assert.equal(h.element('localVisionWarning').hidden, true);
+  assert.equal(h.element('ollamaSetup').hidden, false); assert.doesNotMatch(h.element('ollamaState').textContent, /已运行|已准备/);
+  assert.equal(h.element('ollamaPrepare').disabled, false); assert.equal(h.element('ollamaCheck').disabled, false);
+  assert.equal(h.element('ollamaStart').disabled, true); assert.equal(h.element('ollamaStop').disabled, true);
+  h.state.ollamaSetup.installed = true; h.state.ollamaSetup.modelReady = true; await h.poll();
+  assert.match(h.element('ollamaState').textContent, /服务状态待检测/); assert.doesNotMatch(h.element('ollamaBadge').textContent, /已准备/);
+  delete h.state.ollamaSetup.modelReady; h.state.ollamaSetup.running = true; await h.poll();
+  assert.match(h.element('ollamaState').textContent, /模型状态待检测/); assert.doesNotMatch(h.element('ollamaBadge').textContent, /已准备/);
+  assert.ok(h.requests.every(r => r.path === '/plugins/vision/state'));
+  assert.match(settingsPage, /运行组件下载约 1\.62 GB，模型约 1\.9 GB，另需预留解压及运行空间/); assert.match(settingsPage, /可见 CMD 窗口启动 Ollama，完成后保持运行/);
+});
+
+test('explicit preparation reports bounded progress and offers cancellation without modifying settings', async t => {
+  const h = await page(managedVisionState()); t.after(() => h.close());
+  await h.edit('screenSeconds', '22'); await h.ollama('prepare');
+  const operation = h.requests.find(r => r.path.includes('/ollama/'))!;
+  assert.equal(operation.path, '/plugins/vision/ollama/prepare'); assert.deepEqual(operation.body, {});
+  assert.equal(h.element('ollamaDownloadArea').hidden, false); assert.match(h.element('ollamaDownloadText').textContent, /1\.0 MiB \/ 8\.0 MiB/);
+  for (const action of ['Check', 'Prepare', 'Start', 'Stop']) assert.equal(h.element('ollama' + action).disabled, true);
+  assert.equal(h.element('ollamaCancel').disabled, false); assert.equal(h.field('screenSeconds').value, '22');
+  Object.assign(h.state.ollamaSetup, { phase: 'downloading_model', downloadedBytes: 20 * 1048576, totalBytes: 0 }); await h.poll();
+  assert.match(h.element('ollamaState').textContent, /下载固定模型/); assert.match(h.element('ollamaDownloadText').textContent, /正在确认下载大小/);
+  await h.ollama('cancel');
+  assert.equal(h.element('ollamaCancel').disabled, true); assert.equal(h.element('ollamaDownloadArea').hidden, true);
+  assert.equal(h.field('screenSeconds').value, '22');
+  assert.deepEqual(h.requests.filter(r => r.path.includes('/ollama/')).map(r => r.path), ['/plugins/vision/ollama/prepare', '/plugins/vision/ollama/cancel']);
+  assert.equal(h.requests.some(r => r.path.endsWith('/config')), false);
+});
+
+test('checked external services remain unowned and stop is enabled only for a running plugin-owned process', async t => {
+  const initial = managedVisionState(); initial.ollamaSetup.installed = true;
+  const h = await page(initial); t.after(() => h.close());
+  await h.ollama('check'); assert.equal(h.element('ollamaCancel').disabled, false);
+  Object.assign(h.state.ollamaSetup, { busy: false, phase: 'ready', running: true, modelReady: true, owned: false }); await h.poll();
+  assert.match(h.element('ollamaState').textContent, /已运行.*模型已准备/); assert.match(h.element('ollamaNotice').textContent, /尚未进行看图推理测试/);
+  assert.equal(h.element('ollamaStop').disabled, true); assert.equal(h.element('ollamaStart').disabled, true);
+  assert.match(h.element('ollamaOwnership').textContent, /已有服务.*不会接管.*原启动窗口关闭/);
+  assert.match(h.element('ollamaState').textContent, /^上次检测：/);
+  assert.match(h.element('ollamaOwnership').textContent, /轮询不会自动联网探测.*检测状态.*刷新/);
+  await h.ollama('stop'); assert.equal(h.requests.some(r => r.path.endsWith('/ollama/stop')), false);
+  h.state.ollamaSetup.owned = true; await h.poll(); assert.equal(h.element('ollamaStop').disabled, false);
+  await h.ollama('stop'); assert.match(h.element('ollamaState').textContent, /未运行/);
+  assert.equal(h.element('ollamaStart').disabled, false); await h.ollama('start');
+  assert.match(h.element('ollamaState').textContent, /正在启动/); assert.equal(h.element('ollamaStop').disabled, true);
+  assert.deepEqual(h.requests.filter(r => r.path.includes('/ollama/')).map(r => r.path), ['/plugins/vision/ollama/check', '/plugins/vision/ollama/stop', '/plugins/vision/ollama/start']);
+});
+
+test('Ollama request and background preparation failures are visible, retryable, and retain all drafts', async t => {
+  const h = await page(managedVisionState()); t.after(() => h.close());
+  await h.edit('localVisionMaxTokens', '256'); await h.edit('screenEnabled', 'true');
+  h.controls.failOllama = 'prepare'; await h.ollama('prepare');
+  assert.equal(h.element('ollamaActionError').hidden, false); assert.match(h.element('ollamaActionError').textContent, /合成 Ollama 操作失败/);
+  assert.equal(h.element('ollamaPrepare').disabled, false); assert.equal(h.field('localVisionMaxTokens').value, '256');
+  h.controls.failOllama = ''; await h.ollama('prepare');
+  Object.assign(h.state.ollamaSetup, { busy: false, phase: 'error', error: { code: 'synthetic_download', error: '合成下载失败，请重试' } }); await h.poll();
+  assert.match(h.element('ollamaError').textContent, /合成下载失败/); assert.match(h.element('ollamaPrepare').textContent, /重试/);
+  assert.equal(h.element('ollamaPrepare').disabled, false); assert.equal(h.element('ollamaCancel').disabled, true);
+  await h.ollama('prepare'); assert.equal(h.element('ollamaError').hidden, true); assert.equal(h.element('ollamaActionError').hidden, true);
+  assert.equal(h.field('screenEnabled').value, 'true'); assert.equal(h.field('localVisionMaxTokens').value, '256');
+  assert.equal(h.requests.filter(r => r.path.includes('/ollama/')).length, 3);
+  assert.equal(h.requests.some(r => r.path.endsWith('/config')), false);
+});
+
+test('unsupported or absent manager interfaces never issue operations or claim resource readiness', async t => {
+  for (const missing of [true, false]) {
+    const initial = managedVisionState();
+    if (missing) delete initial.ollamaSetup; else initial.ollamaSetup.supported = false;
+    const h = await page(initial); t.after(() => h.close());
+    assert.match(h.element('ollamaState').textContent, missing ? /未提供.*接口/ : /不支持/);
+    for (const action of ['check', 'prepare', 'start', 'stop', 'cancel'] as const) await h.ollama(action);
+    assert.equal(h.requests.some(r => r.path.includes('/ollama/')), false);
+    assert.doesNotMatch(h.element('ollamaBadge').textContent, /已准备/);
+  }
+});
+
+test('saving and applying managed settings leaves an ongoing Ollama preparation independent', async t => {
+  const h = await page(managedVisionState()); t.after(() => h.close());
+  await h.ollama('prepare'); await h.edit('screenEnabled', 'true'); await h.submit();
+  assert.equal(h.element('saveState').textContent, '设置已生效');
+  assert.equal(h.state.ollamaSetup.busy, true); assert.equal(h.state.ollamaSetup.phase, 'downloading_runtime');
+  assert.equal(h.element('ollamaDownloadArea').hidden, false); assert.equal(h.element('ollamaCancel').disabled, false);
+  assert.deepEqual(h.requests.filter(r => r.path.includes('/ollama/')).map(r => r.path), ['/plugins/vision/ollama/prepare']);
+  assert.equal(h.requests.filter(r => r.path.endsWith('/config')).at(-1)!.body.config.visualUnderstanding.source, 'managed');
+  h.controls.failRead = true; await h.poll(); assert.match(h.element('ollamaState').textContent, /状态未确认/);
+  assert.equal(h.element('ollamaCancel').disabled, true);
+});
+
+test('cancellation stays available during a delayed preparation acknowledgement and suppresses its stale state', async t => {
+  const h = await page(managedVisionState()); t.after(() => h.close());
+  let release!: () => void; h.controls.ollamaGate = new Promise<void>(resolve => { release = resolve; });
+  const preparing = h.ollama('prepare'); await new Promise<void>(resolve => setImmediate(resolve));
+  await h.poll(); assert.equal(h.element('ollamaCancel').disabled, false);
+  await h.ollama('cancel'); assert.equal(h.element('ollamaDownloadArea').hidden, true);
+  release(); await preparing;
+  assert.equal(h.element('ollamaDownloadArea').hidden, true); assert.equal(h.element('ollamaCancel').disabled, true);
+  assert.equal(h.element('ollamaPrepare').disabled, false);
+  assert.deepEqual(h.requests.filter(r => r.path.includes('/ollama/')).map(r => r.path), ['/plugins/vision/ollama/prepare', '/plugins/vision/ollama/cancel']);
+});
+
+test('cancel is offered only during cancellable setup phases, never while an owned service is stopping', async t => {
+  const initial = managedVisionState();
+  Object.assign(initial.ollamaSetup, { installed: true, owned: true, running: true, modelReady: true });
+  const h = await page(initial); t.after(() => h.close());
+  for (const phase of ['checking', 'downloading_runtime', 'extracting', 'starting', 'downloading_model']) {
+    Object.assign(h.state.ollamaSetup, { busy: true, phase }); await h.poll();
+    assert.equal(h.element('ollamaCancel').disabled, false, phase + ' can be cancelled');
+  }
+  // The manager retains the previous terminal phase while awaiting process.stop().
+  for (const phase of ['ready', 'idle', 'error', 'stopped']) {
+    Object.assign(h.state.ollamaSetup, { busy: true, phase }); await h.poll();
+    assert.equal(h.element('ollamaCancel').disabled, true, phase + ' is not a cancellable setup job');
+    assert.doesNotMatch(h.element('ollamaNotice').textContent, /可以取消/);
+    await h.ollama('cancel');
+  }
+  assert.equal(h.requests.some(r => r.path.includes('/ollama/')), false);
+});
+
+test('a closed owned console with unconfirmed cleanup stays unavailable and offers stop retry until confirmed', async t => {
+  const initial = managedVisionState();
+  Object.assign(initial.ollamaSetup, { installed: true, owned: true, running: false, modelReady: true, cleanupPending: true,
+    phase: 'error', error: { code: 'ollama_cleanup_pending', error: '停止尚未确认，请重试' } });
+  const h = await page(initial); t.after(() => h.close());
+  assert.match(h.element('ollamaState').textContent, /窗口已关闭，仍在确认清理/);
+  assert.equal(h.element('ollamaBadge').textContent, '清理待确认'); assert.equal(h.element('ollamaBadge').dataset.tone, 'warn');
+  assert.match(h.element('ollamaOwnership').textContent, /尚未确认全部退出.*确认完成前不会重新启动/);
+  assert.match(h.element('ollamaNotice').textContent, /停止失败可以继续重试.*不表示服务可用/);
+  assert.equal(h.element('ollamaStart').disabled, true); assert.equal(h.element('ollamaPrepare').disabled, true);
+  assert.equal(h.element('ollamaCancel').disabled, true); assert.equal(h.element('ollamaStop').disabled, false);
+  assert.match(h.element('ollamaStop').textContent, /重试停止并确认清理/);
+  h.controls.failOllama = 'stop'; await h.ollama('stop');
+  assert.equal(h.element('ollamaStop').disabled, false); assert.equal(h.element('ollamaActionError').hidden, false);
+  h.state.ollamaSetup.running = true; h.state.ollamaSetup.phase = 'ready'; await h.poll();
+  assert.doesNotMatch(h.element('ollamaState').textContent, /已运行.*已准备/);
+  assert.equal(h.element('ollamaBadge').textContent, '清理待确认', 'stale readiness cannot override cleanup responsibility');
+  h.state.ollamaSetup.busy = true; await h.poll(); assert.equal(h.element('ollamaStop').disabled, true);
+  h.state.ollamaSetup.busy = false; h.controls.failOllama = ''; await h.poll(); await h.ollama('stop');
+  assert.equal(h.element('ollamaStop').disabled, true); assert.equal(h.element('ollamaStart').disabled, false);
+  assert.equal(h.element('ollamaError').hidden, true); assert.equal(h.element('ollamaActionError').hidden, true);
+  assert.match(h.element('ollamaState').textContent, /未运行/);
+  assert.deepEqual(h.requests.filter(r => r.path.includes('/ollama/')).map(r => r.path), ['/plugins/vision/ollama/stop', '/plugins/vision/ollama/stop']);
 });

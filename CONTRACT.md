@@ -1,6 +1,6 @@
 # vision 服务契约
 
-插件版本 0.4.1，插件 ID 保持 `vision`。原有视觉服务版本 `1.0.0` 和视听扩展 `audiovisualApiVersion:"1.0.0"` 继续兼容。公开类型见 `src/types.ts` 与 `src/audio-types.ts`。旧 `prepare()` / `vision_view` 不包含声音，保留 `audioIncluded:false`。
+插件版本 0.5.0，插件 ID 保持 `vision`。原有视觉服务版本 `1.0.0` 和视听扩展 `audiovisualApiVersion:"1.0.0"` 继续兼容。公开类型见 `src/types.ts` 与 `src/audio-types.ts`。旧 `prepare()` / `vision_view` 不包含声音，保留 `audioIncluded:false`。
 
 ## 依赖、授权和来源
 
@@ -27,7 +27,7 @@
 
 时间段为 `[fromSeconds,toSeconds)`；默认从 0 起处理最多 30 秒，单次最大 60 秒，不越过结尾。`atSeconds` 与时间段互斥，且早于结尾；静态图不接受时间参数。图片返回实际尺寸、编号、采样时间及拼图区域。`coverage` 记录范围、下一段、采样网格及省略数，`timelineComplete:false`；采样位置不能当作逐帧精确事件时间。GIF/WebP 按帧延时选帧，缺失延时时声明估算。
 
-0.3.0 为 `PrepareInput` / `UnderstandInput` 兼容增加可选 `focus:'whole'|'auto'`、`maxFrames:2..8`（整数）、`sampleFps:1|2|4|6`。本次参数优先于 `config.visual`，再沿用旧默认。`config.visual` 可设 `detail:'auto'|'overview'|'detail'`、`layout:'frames'|'sheet'` 及上述三个参数；默认 `auto/frames/whole/8/2`。画质配置 auto 时仍为概览640、atSeconds细看1600；显式 detail 优先。旧配置不自动插入新对象，旧设置客户端缺省 visual/screen 时保留已保存值，配置修改仍需重载。
+0.3.0 为 `PrepareInput` / `UnderstandInput` 兼容增加可选 `focus:'whole'|'auto'`、`maxFrames:2..8`（整数）、`sampleFps:1|2|4|6`。本次参数优先于 `config.visual`，再沿用旧默认。`config.visual` 可设 `detail:'auto'|'overview'|'detail'`、`layout:'frames'|'sheet'` 及上述三个参数；默认 `auto/frames/whole/8/2`。画质配置 auto 时仍为概览640、atSeconds细看1600；显式 detail 优先。旧配置不自动插入新对象，旧设置客户端缺省 visual/screen 时保留已保存值，旧客户端保存仍需随后应用或重载。
 
 自动聚焦只分析当前媒体所选范围，不读取旧画面。存在可靠持续变化区域、且预算允许时追加一张原比例细节图，首尾全景仍保留。`PreparedMedia.focus` 可选，含 `{mode,applied,reason}`；`images[].frames[]` 可选增加 `role:'overview'|'focus'`、原画归一化 `crop`。局部图保留来源时刻，`PreparedMedia.crop` 仍只表示显式裁剪；手动裁剪优先。画面预算包括全景和附加细节，拼图中的每个画面也计入；静态、单时刻、不可靠变化及预算不足不伪造建议。采样间隔返回实际值，快速动作仍可能遗漏。
 
@@ -115,13 +115,23 @@
 - `media_unavailable` 统一覆盖过期、释放、停用及跨会话访问；`busy`/`audio_busy`/`quota` 表示资源限制。输入、解码、模型连接、资源准备、推理和输出错误均用固定安全码区分。部分声音失败可保留画面或其他成功任务。
 - `prepare()` 与 `offerMedia()` 本身不调用模型；`understand()` 只按所选任务和后端运行，可能调用选定云端服务。没有收藏、平台发送或其他平台副作用。
 
+## Ollama 准备与运行管理（0.5.0）
+
+`visualUnderstanding.source?:'connection'|'managed'` 为可选字段，缺省保持原来的宿主模型连接；选择 managed 后使用插件固定本地组件及固定 `qwen3-vl:2b`。不写宿主模型配置、不改变当前主模型、不伪装宿主模型条目；这是插件自身的本地能力，与按用途的本地语音资源同属插件。旧 modelId 保留供切回使用；managed 推理仍检查回环地址、模型视觉能力、远端标记、取消、容量和输出限制。
+
+GET state 增加 `ollamaSetup`（支持、安装、运行/归属、模型就绪、阶段、进度和安全错误）；尚未检测的运行状态不等于 false 或成功。POST `/plugins/vision/ollama/{check,prepare,start,stop,cancel}` 只接受空 JSON 对象，拒绝自定义路径、URL、模型、命令和外部 PID；沿用宿主插件页面/API 鉴权。操作明确发起，准备任务归插件生命周期，页面断开不自动中断。没有模型可调用的下载或进程管理工具。
+
+prepare 校验固定来源组件、必要时启动服务并拉取固定模型；start 不自动下载，stop 只停止本实例通过认证 IPC 拥有的服务。已有 11434/11435 本地 Ollama 仅检测和复用，不按端口或名称结束进程。自有 Windows 服务启动时配套可见 CMD，由独立控制进程和 Job Object 管理整个服务子树；父插件结束、IPC 断开或停止会回收自有服务。单纯设置生效不重建运行管理器。准备、检测、启动、取消互斥，状态成功须结合服务响应与本地视觉模型元数据，不能只看启动进程或流结束。
+
+运行组件采用固定 HTTPS 来源、重定向限制、流式容量/摘要校验；解压前验证 ZIP 路径和链接、数量/容量，解压时验证实际大小/CRC/SHA，成功原子落入自有版本目录。只清理本次确切临时目录。启动重新校验 exe/dll；不覆盖无法验证归属的已存在版本目录。模型由 Ollama 的内容摘要机制下载校验，取消只断开本次 pull 请求，不承诺终止其他客户端共享下载。状态、错误和回执不暴露本机路径或上游原始响应。
+
 ## 设置保存与应用
 
 设置页使用本插件鉴权 API，不依赖宿主私有管理接口。GET `/plugins/vision/state` 返回 `applySupported`、`applying`、`revision`、`appliedRevision`、`pendingReload` 及可选 `applyError`；保存版本与运行版本一致才表示已生效，不代表模型连接已通过真实推理验收。
 
 POST `/plugins/vision/config` 传 `{config, revision, apply:true}`，保存后在插件内部应用；省略 `apply` 保留旧客户端仅保存、等待应用/重载的行为。POST `/plugins/vision/apply` 传 `{revision}` 应用已保存配置。两者串行且在队列内检查版本冲突。成功返回 `saved:true, applied:true, reloadRequired:false, revision`；保存后应用失败返回 HTTP 400 与 `saved:true, applied:false, reloadRequired:true, revision, code, error`，配置保留，可修复后重试。
 
-实际应用先关闭入口、撤销三个视觉工具并取消、等待完整在途调用和资源下载，再清理旧临时媒体，创建新实例并按所选后端注册工具。此过程使旧媒体引用失效，保留已安装权重；新旧实例不会同时使用同一暂存目录。未变且已生效的配置不重建实例。应用期间服务返回 `settings_applying`；旧工具的迟到结果丢弃。保存完成后浏览器断开不会中断应用，宿主停用则阻止迟到注册。音频资源不可用仍按原行为单独报告，不阻断视觉初始化。
+实际应用先关闭入口、撤销三个视觉工具并取消、等待完整在途调用和声音资源下载，再清理旧临时媒体，创建新实例并按所选后端注册工具。此过程使旧媒体引用失效，保留已安装权重；新旧实例不会同时使用同一暂存目录。未变且已生效的配置不重建实例。应用期间服务返回 `settings_applying`；旧工具的迟到结果丢弃。保存完成后浏览器断开不会中断应用，宿主停用则阻止迟到注册。音频资源不可用仍按原行为单独报告，不阻断视觉初始化。
 
 ## 最小来源接入
 

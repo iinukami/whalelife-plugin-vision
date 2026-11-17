@@ -137,6 +137,12 @@ for (const baseline of ['current', '213b52b'] as const) {
       const f = await fixture(t, baseline);
       let state = await f.state();
       assert.equal(state.applySupported, true);
+      assert.equal(state.ollamaSetup.busy, false);
+      assert.equal(state.ollamaSetup.running, undefined, 'initialization must not probe or start a local service');
+      const forbiddenSetup = await f.request('/plugins/vision/ollama/prepare', { url: 'https://example.invalid/arbitrary.exe' });
+      assert.equal(forbiddenSetup.status, 400); assert.equal(forbiddenSetup.body.code, 'invalid_input');
+      const externalStop = await f.request('/plugins/vision/ollama/stop', {});
+      assert.equal(externalStop.status, 400); assert.equal(externalStop.body.code, 'ollama_not_owned');
       assert.equal(state.applying, false);
       assert.equal(state.pendingReload, false);
       assert.equal(state.appliedRevision, state.revision);

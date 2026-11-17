@@ -11,6 +11,19 @@ const settings: LocalVisionSettings = { backend: 'ollama', modelId: 'synthetic-v
 const privateMarker = 'SUPPLIER_PRIVATE_MARKER';
 const goodShow = { capabilities: ['completion', 'vision'] };
 const goodChat = { done: true, done_reason: 'stop', message: { role: 'assistant', content: '合成画面中有一个红色方块。' } };
+
+test('explicit managed source describes a synthetic image without reading or changing a host connection', async t => {
+  const f = await mock(t);
+  let hostReads = 0, managedReads = 0;
+  const app = new LocalVision({ backend: 'ollama', source: 'managed', modelId: 'retained-existing-choice', maxTokens: 512 }, signal(),
+    () => { hostReads++; throw Error('Unexpected host connection'); }, () => { managedReads++; return f.connection; });
+  t.after(() => app.stop());
+  assert.equal(app.status().configured, true);
+  assert.equal((await app.describe([await picture()], '合成画面中是什么？', signal())).text, goodChat.message.content);
+  assert.equal(hostReads, 0); assert.equal(managedReads, 1);
+  assert.deepEqual(f.requests.map(request => request.path), ['/api/show', '/api/chat']);
+  assert.equal(f.requests[1].body.think, false);
+});
 type Request = { path: string; headers: IncomingMessage['headers']; body: any };
 
 function json(res: ServerResponse, value: unknown) {

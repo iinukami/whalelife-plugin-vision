@@ -1,0 +1,24 @@
+{
+  "version": "0.40.16",
+  "platform": "win32",
+  "arch": "x64",
+  "license": "MIT",
+  "homepage": "https://ollama.com/",
+  "source": "https://github.com/ollama/ollama/tree/v0.40.16",
+  "licenseUrl": "https://github.com/ollama/ollama/blob/v0.40.16/LICENSE",
+  "url": "https://github.com/ollama/ollama/releases/download/v0.40.16/ollama-windows-amd64.zip",
+  "bytes": 1618244995,
+  "sha256": "50fcf5ad54277f2fa5d173ebfc93bcb017adbc0c9ef2314daabc96ca9e6aa64e",
+  "maxFiles": 1024,
+  "maxExpandedBytes": 8589934592,
+  "maxFileBytes": 2147483648,
+  "requiredFiles": [
+    "ollama.exe",
+    "lib/ollama/llama-server.exe",
+    "lib/ollama/ggml-base.dll",
+    "lib/ollama/ggml.dll",
+    "lib/ollama/libllama.dll",
+    "lib/ollama/LLAMA_CPP_LICENSE",
+    "lib/ollama/GO_LICENSE"
+  ]
+}

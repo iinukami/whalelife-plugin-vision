@@ -6,7 +6,7 @@ import type { ModelConnection } from 'whalelife';
 import { Agent, fetch, type Response } from 'undici';
 import { fail, VisionError, type PreparedImage } from './types.ts';
 
-export type LocalVisionSettings = { backend: 'main' | 'ollama'; modelId: string; maxTokens: number };
+export type LocalVisionSettings = { backend: 'main' | 'ollama'; modelId: string; maxTokens: number; source?: 'connection' | 'managed' };
 export const localVisionDefaults: LocalVisionSettings = { backend: 'main', modelId: '', maxTokens: 512 };
 type Evidence = { backend: 'ollama'; text: string; truncated: boolean; images: number; usage?: Record<string, number> };
 const MiB = 1024 * 1024, MAX_REPLY = MiB, MAX_TEXT = 16 * 1024;
@@ -18,11 +18,13 @@ export function localVisionSettingsOf(value: unknown): LocalVisionSettings {
   const backend = raw.backend === undefined ? localVisionDefaults.backend : raw.backend;
   const modelId = raw.modelId === undefined ? '' : raw.modelId, maxTokens = raw.maxTokens === undefined ? 512 : raw.maxTokens;
   if (backend !== 'main' && backend !== 'ollama') fail('local_vision_config', '视觉理解方式无效。');
+  if (raw.source !== undefined && raw.source !== 'connection' && raw.source !== 'managed')
+    fail('local_vision_config', '本地视觉来源无效。');
   if (typeof modelId !== 'string' || modelId.length > 200 || /[\s\x00-\x1f\x7f]/.test(modelId))
     fail('local_vision_config', '请选择有效的模型配置 ID。');
   if (typeof maxTokens !== 'number' || !Number.isInteger(maxTokens) || maxTokens < 128 || maxTokens > 1024)
     fail('local_vision_config', '本地视觉输出预算须为 128–1024 的整数。');
-  return { backend, modelId, maxTokens };
+  return { backend, modelId, maxTokens, ...(raw.source === undefined ? {} : { source: raw.source }) };
 }
 
 function localConnection(connection: ModelConnection) {
@@ -148,20 +150,22 @@ export class LocalVision {
   private readonly controller = new AbortController();
   private readonly signal: AbortSignal;
   private readonly connection: (id: string) => ModelConnection | Promise<ModelConnection>;
+  private readonly managedConnection?: () => ModelConnection | Promise<ModelConnection>;
   private pending?: Promise<Evidence>;
-  constructor(settings: LocalVisionSettings | undefined, signal: AbortSignal, connection: (id: string) => ModelConnection | Promise<ModelConnection>) {
+  constructor(settings: LocalVisionSettings | undefined, signal: AbortSignal, connection: (id: string) => ModelConnection | Promise<ModelConnection>, managedConnection?: () => ModelConnection | Promise<ModelConnection>) {
     this.settings = localVisionSettingsOf(settings);
     this.signal = AbortSignal.any([signal, this.controller.signal]);
     this.connection = connection;
+    this.managedConnection = managedConnection;
   }
   status() {
-    return { backend: this.settings.backend, configured: !!this.settings.modelId, maxTokens: this.settings.maxTokens,
+    return { backend: this.settings.backend, source: this.settings.source ?? 'connection', configured: this.settings.source === 'managed' || !!this.settings.modelId, maxTokens: this.settings.maxTokens,
       busy: !!this.pending, concurrency: 1, stopped: this.signal.aborted, automaticFallback: false };
   }
   async describe(images: PreparedImage[], question: string | undefined, signal: AbortSignal): Promise<Evidence> {
     if (this.signal.aborted || signal.aborted) fail('cancelled', '本地视觉处理已取消。');
     if (this.settings.backend !== 'ollama') fail('local_vision_disabled', '当前没有启用本地视觉理解。');
-    if (!this.settings.modelId) fail('local_vision_model_required', '请先选择已配置的本地视觉模型。');
+    if (this.settings.source !== 'managed' && !this.settings.modelId) fail('local_vision_model_required', '请先选择已配置的本地视觉模型。');
     if (this.pending) fail('local_vision_busy', '本地视觉正在处理另一项任务，请稍后再试。');
     const input = preparedInput(images, question);
     const operation = this.run(input, AbortSignal.any([this.signal, signal]));
@@ -175,9 +179,16 @@ export class LocalVision {
       // A missing/unresponsive host connection lookup must not prevent stop() from completing.
       timed = AbortSignal.timeout(10_000);
       let connection: ModelConnection;
-      try { connection = await abortable(Promise.resolve().then(() => this.connection(this.settings.modelId)), AbortSignal.any([signal, timed])); }
-      catch {
+      try { connection = await abortable(Promise.resolve().then(() => {
+        if (this.settings.source === 'managed') {
+          if (!this.managedConnection) fail('ollama_not_ready', '请先在视听设置准备并启动本地模型。');
+          return this.managedConnection();
+        }
+        return this.connection(this.settings.modelId);
+      }), AbortSignal.any([signal, timed])); }
+      catch (error) {
         if (signal.aborted || timed.aborted) throw new Error('cancelled');
+        if (this.settings.source === 'managed' && error instanceof VisionError) throw error;
         fail('local_vision_model_unavailable', '所选本地模型配置不存在、已停用或无法读取。');
       }
       if (signal.aborted) throw new Error('cancelled');

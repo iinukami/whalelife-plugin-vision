@@ -26,10 +26,18 @@ export const settingsPage = `<!doctype html><html lang="zh-CN"><meta charset="ut
 <details class="panel" id="visualSettings" open><summary>画面理解与处理<span class="pill" id="visualModeBadge">主模型直接看</span></summary><div class="panel-body">
 <div class="section"><h2>画面理解方式</h2><p class="hint">图片、视频与看屏共用这一选择。</p>
 <label class="row">理解方式<select name="visualUnderstandingBackend"><option value="main">主模型直接看</option><option value="ollama">本地 Ollama 描述</option></select></label><p class="field-help" id="visualUnderstandingHelp"></p>
-<div id="localVisionOptions" hidden><label class="row">本地看图模型连接<select name="localVisionModelId"><option value="">尚未选择</option></select></label>
+<div id="localVisionOptions" hidden><label class="row">本地模型来源<select name="localVisionSource"><option value="connection">已有模型连接</option><option value="managed">插件准备的固定小模型</option></select></label><p class="field-help">已有连接沿用宿主模型服务；一键准备使用本机 Ollama 与固定的 qwen3-vl:2b，不会替换已保存的连接。</p>
+<div id="localVisionConnection"><label class="row">本地看图模型连接<select name="localVisionModelId"><option value="">尚未选择</option></select></label>
 <p class="field-help">在宿主模型服务中添加 chat 或 custom 类型、OpenAI 兼容协议的本机 Ollama 连接，地址为 http://127.0.0.1:11434/v1，再在此选择配置。列表中的名称不代表模型已支持看图。</p>
-<p class="hint">需先自行安装 Ollama，并拉取支持视觉的本地模型。本插件不自动下载模型或启动 Ollama，不支持 Ollama 云模型或代理。保存设置不会测试连接。</p>
+<p class="hint">使用已有连接时，请先安装并启动 Ollama、准备支持视觉的本地模型。此来源不会自动下载或启动；不支持 Ollama 云模型或代理。保存设置不会测试连接。</p>
 <p class="warning" id="localVisionWarning" hidden>还没有选择本地看图模型，本地画面描述暂时无法使用。</p></div>
+<div id="ollamaSetup" class="section" hidden><h2>一键准备本地看图</h2><p class="hint">固定模型 qwen3-vl:2b：Ollama 运行组件下载约 1.62 GB，模型约 1.9 GB，另需预留解压及运行空间。小模型可能漏掉细节，速度和内存占用取决于这台电脑。</p>
+<p class="hint">点击“一键准备并启动”才会下载缺少的组件和模型；需要时会在可见 CMD 窗口启动 Ollama，完成后保持运行。打开此页、切换来源或保存设置都不会触发准备。</p>
+<div class="resource-title"><strong id="ollamaState">等待检测</strong><span class="pill" id="ollamaBadge">状态未确认</span></div><p id="ollamaDetail" class="hint"></p>
+<div id="ollamaDownloadArea" hidden><progress id="ollamaDownload" max="1" value="0" aria-label="Ollama 准备进度"></progress><p id="ollamaDownloadText" class="hint"></p></div>
+<div class="actions"><button id="ollamaPrepare" type="button" disabled>一键准备并启动</button><button id="ollamaCheck" type="button" disabled>检测状态</button><button id="ollamaStart" type="button" disabled>启动 Ollama</button><button id="ollamaStop" type="button" disabled>停止本插件启动的 Ollama</button><button id="ollamaCancel" type="button" disabled>取消当前操作</button></div>
+<p id="ollamaOwnership" class="hint"></p><p id="ollamaNotice" class="hint" role="status"></p><p id="ollamaError" class="warning" role="alert" hidden></p><p id="ollamaActionError" class="warning" role="alert" hidden></p>
+<p class="hint">准备与设置保存相互独立。准备完成后，仍需“保存并生效”才能使用所选来源。检测只检查服务和模型状态，不调用模型推理；资源就绪不代表看图准确性已验证。</p></div></div>
 <p class="technical current-settings" id="localVisionCurrent">正在读取当前画面理解方式。</p></div>
 <div class="section"><h2>画面准备</h2><p class="hint">调整用于理解的画面。具体查看任务指定的画质和布局优先于这里的默认设置。</p>
 <label class="row">默认画质<select name="visualDetail"><option value="auto">自动 · 按查看任务选择</option><option value="overview">概览 · 减少画面大小</option><option value="detail">细节 · 保留更多细节</option></select></label><p class="field-help" id="visualDetailHelp"></p>
@@ -67,7 +75,7 @@ export const settingsPage = `<!doctype html><html lang="zh-CN"><meta charset="ut
 </div><div class="section"><h2>临时媒体</h2><p class="hint">控制来源图片与音视频临时文件的保留时间和占用，不影响聊天记忆。媒体按会话隔离，过期或停用后清理。看屏截图不进入此缓存，本插件不落盘保存截图。</p>
 <label class="row">引用有效期（秒）<input name="ttlSeconds" type="number" min="30" max="7200" required></label><p class="field-help">1800 秒为 30 分钟。过期后继续查看，需要重新取得媒体。</p>
 <label class="row">单文件上限（MiB）<input name="maxMediaMiB" type="number" min="1" max="64" required></label><label class="row">总容量上限（MiB）<input name="maxTotalMiB" type="number" min="1" max="512" required></label><p class="field-help">总容量统计所有会话的临时媒体，不能小于单文件上限。</p></div><div class="technical"><p id="decoder"></p><p id="usage"></p></div></div></details>
-<div class="save-area"><div class="actions"><button id="save" class="primary" type="submit" disabled>保存设置</button><button id="apply" type="button" hidden disabled>应用已保存设置</button><span id="saveState" class="pill">正在读取</span><a id="manage" class="link-button" href="/#plugins" target="_top" hidden>打开插件管理</a></div><p id="applyImpact" class="hint">使设置生效会取消本插件正在处理的任务和资源下载，并清理旧媒体引用；需要时请重新取得媒体。</p><p id="notice" class="muted" role="status">正在读取设置应用方式。</p><p id="saveError" role="alert" hidden></p><p id="applyError" role="alert" hidden></p></div>
+<div class="save-area"><div class="actions"><button id="save" class="primary" type="submit" disabled>保存设置</button><button id="apply" type="button" hidden disabled>应用已保存设置</button><span id="saveState" class="pill">正在读取</span><a id="manage" class="link-button" href="/#plugins" target="_top" hidden>打开插件管理</a></div><p id="applyImpact" class="hint">使设置生效会取消本插件正在处理的视听任务和声音资源下载，并清理旧媒体引用；需要时请重新取得媒体。Ollama 准备独立进行，不会因此取消。</p><p id="notice" class="muted" role="status">正在读取设置应用方式。</p><p id="saveError" role="alert" hidden></p><p id="applyError" role="alert" hidden></p></div>
 </form>
 <p class="footnote">已有音视频默认每次看听 30 秒，单次最多 60 秒，可继续分段处理。主模型收到直接图片或本地生成的画面描述，并接收所选声音任务的文字资料；本地处理后的文字仍会交给主模型。</p>
 <details class="panel"><summary>理解范围与使用说明</summary><div class="panel-body"><p class="hint">网页与平台媒体仍由来源插件取得；这页显示处理能力，不代表这些来源已完成接入。按需看屏只采集当前可见画面，窗口内容会受遮挡，不能取得被遮挡或最小化窗口的隐藏内容。歌词识别可能受伴奏影响，本地音乐分析不等于完整乐谱或确定的段落标签。</p><p class="hint">主模型直接看图需要宿主多模态接口，所选主模型须支持图片；旧宿主显示主模型查看暂不可用。本地 Ollama 描述需要宿主临时文字工具接口，主模型只收到文字，不要求主模型支持图片。页面不会调用模型测试连接，失败不会自动切换理解方式。主模型没有直接收到原音频。临时媒体不作为长期收藏，普通聊天最终回答仍按宿主规则保存。</p></div></details>
@@ -75,30 +83,46 @@ export const settingsPage = `<!doctype html><html lang="zh-CN"><meta charset="ut
 const $=selector=>document.querySelector(selector),form=$('#settings'),save=$('#save'),apply=$('#apply'),prepare=$('#prepare');
 const text=(selector,value)=>{$(selector).textContent=value;},show=(selector,value)=>{$(selector).hidden=!value;},field=name=>form.elements.namedItem(name);
 const mib=n=>((Number(n)||0)/1048576).toFixed(1)+' MiB';
-let revision,latest,savedSnapshot='',savedProxy='',savedLocalVisionMaxTokens=512,initialized=false,loading=false,saving=false,requestApplies=false,preparing=false,online=false,resourceAttention=false,prepareMessage='',confirmation,applyFailureRevision,mutationGeneration=0;
+let revision,latest,savedSnapshot='',savedProxy='',savedLocalVisionMaxTokens=512,initialized=false,loading=false,saving=false,requestApplies=false,preparing=false,online=false,resourceAttention=false,prepareMessage='',confirmation,applyFailureRevision,mutationGeneration=0,ollamaRequest='',ollamaRequestGeneration=0;
 function validLocalVisionBudget(value){const budget=Number(value);return Number.isInteger(budget)&&budget>=128&&budget<=1024;}
-function readConfig(){const values=Object.fromEntries(new FormData(form));return {ttlSeconds:Number(values.ttlSeconds),maxMediaMiB:Number(values.maxMediaMiB),maxTotalMiB:Number(values.maxTotalMiB),visual:{detail:values.visualDetail,layout:values.visualLayout,focus:values.visualFocus,maxFrames:Number(values.visualMaxFrames),sampleFps:Number(values.visualSampleFps)},visualUnderstanding:{backend:values.visualUnderstandingBackend,modelId:values.localVisionModelId,maxTokens:Number(values.localVisionMaxTokens)},screen:{enabled:values.screenEnabled==='true',target:values.screenTarget,seconds:Number(values.screenSeconds)},audio:{speechBackend:values.speechBackend,speechModelId:values.speechModelId,understandingModelId:values.understandingModelId,musicBackend:values.musicBackend,resourceProxyUrl:values.resourceProxyUrl}};}
+function readConfig(){const values=Object.fromEntries(new FormData(form));return {ttlSeconds:Number(values.ttlSeconds),maxMediaMiB:Number(values.maxMediaMiB),maxTotalMiB:Number(values.maxTotalMiB),visual:{detail:values.visualDetail,layout:values.visualLayout,focus:values.visualFocus,maxFrames:Number(values.visualMaxFrames),sampleFps:Number(values.visualSampleFps)},visualUnderstanding:{backend:values.visualUnderstandingBackend,modelId:values.localVisionModelId,maxTokens:Number(values.localVisionMaxTokens),...(values.localVisionSource==='managed'?{source:'managed'}:{})},screen:{enabled:values.screenEnabled==='true',target:values.screenTarget,seconds:Number(values.screenSeconds)},audio:{speechBackend:values.speechBackend,speechModelId:values.speechModelId,understandingModelId:values.understandingModelId,musicBackend:values.musicBackend,resourceProxyUrl:values.resourceProxyUrl}};}
 function dirty(){return initialized&&JSON.stringify(readConfig())!==savedSnapshot;}
 function applied(data){return !data.pendingReload&&!data.applying&&(data.applySupported!==true||(typeof data.revision==='string'&&data.appliedRevision===data.revision));}
 function screenStateOf(s){const screen=s.screen,understanding=runtimeVisual(s);return !screen?'看屏状态暂不可用':!screen.supported?'当前平台不支持':!screen.enabled?'未开启':screen.busy?'正在采集':!s.mediaPreparation?'媒体处理暂不可用':!understanding.capable?'已开启 · 等待宿主接口':!understanding.configured?'已开启 · 待选择本地模型':'已开启 · 按需采集';}
-function runtimeVisual(s){const local=s.localVision?.backend==='ollama';return {local,capable:local?!!s.localDescriptionTools:!!s.mainModelViewing,configured:!local||!!s.localVision?.configured,busy:local&&!!s.localVision?.busy};}
+function runtimeVisual(s){const local=s.localVision?.backend==='ollama';return {local,managed:local&&s.localVision?.source==='managed',capable:local?!!s.localDescriptionTools:!!s.mainModelViewing,configured:!local||!!s.localVision?.configured,busy:local&&!!s.localVision?.busy};}
 function loadForm(data){
  const choices=data.models||[];
  const understanding={backend:'main',modelId:'',maxTokens:512,...data.localVisionDefaults,...(data.config.visualUnderstanding||{})};
  for(const name of ['speechModelId','understandingModelId','localVisionModelId']){const select=field(name),selected=name==='localVisionModelId'?understanding.modelId:(data.config.audio||{})[name]||'';select.replaceChildren(new Option('尚未选择',''));for(const model of choices.filter(m=>name==='speechModelId'?m.type==='stt':m.type==='chat'||m.type==='custom'))select.add(new Option(model.name,model.id));if(selected&&!Array.from(select.options).some(o=>o.value===selected))select.add(new Option('原配置不可用 · '+selected,selected));}
  savedLocalVisionMaxTokens=validLocalVisionBudget(understanding.maxTokens)?Number(understanding.maxTokens):512;
- field('visualUnderstandingBackend').value=understanding.backend;field('localVisionModelId').value=understanding.modelId;field('localVisionMaxTokens').value=savedLocalVisionMaxTokens;
+ field('visualUnderstandingBackend').value=understanding.backend;field('localVisionSource').value=understanding.source==='managed'?'managed':'connection';field('localVisionModelId').value=understanding.modelId;field('localVisionMaxTokens').value=savedLocalVisionMaxTokens;
  const values={...data.config,...data.audioDefaults,...(data.config.audio||{})};for(const [name,value]of Object.entries(values)){const input=field(name);if(input)input.value=value;}
  const visual={...data.visualDefaults,...(data.config.visual||{})},screen={...data.screenDefaults,...(data.config.screen||{})};
  for(const [name,value]of Object.entries(visual)){const input=field('visual'+name[0].toUpperCase()+name.slice(1));if(input)input.value=value;}
  for(const [name,value]of Object.entries(screen)){const input=field('screen'+name[0].toUpperCase()+name.slice(1));if(input)input.value=String(value);}
  revision=data.revision;savedSnapshot=JSON.stringify(readConfig());savedProxy=field('resourceProxyUrl').value;initialized=true;
 }
+function updateOllama(){
+ const setup=latest?.ollamaSetup,available=online&&setup?.supported===true,busy=!!setup?.busy,locked=busy||!!ollamaRequest,cleanupPending=!!setup?.cleanupPending,ready=setup?.supported===true&&!cleanupPending&&setup?.phase!=='error'&&setup?.running===true&&setup?.modelReady===true,cancellable=busy&&!cleanupPending&&['checking','downloading_runtime','extracting','starting','downloading_model'].includes(setup?.phase);
+ const phases={idle:'等待检测或准备',checking:'正在检测服务与模型',downloading_runtime:'正在下载 Ollama 运行组件',extracting:'正在解压运行组件',starting:'正在启动 Ollama',downloading_model:'正在下载固定模型',ready:'服务与模型已准备',error:'准备遇到问题',stopped:'服务已停止'};
+ const requests={check:'正在提交检测请求…',prepare:'正在提交准备请求…',start:'正在提交启动请求…',stop:'正在提交停止请求…',cancel:'正在取消当前操作…'};
+ const stateText=!online?'连接中断 · 状态未确认':!setup?'当前插件未提供一键准备接口':setup.supported!==true?'当前平台不支持一键准备':cleanupPending?(setup.running===false?'窗口已关闭，仍在确认清理':'自有进程停止尚未确认'):locked?(requests[ollamaRequest]||phases[setup.phase]||'正在处理'):setup.phase==='error'?'准备遇到问题':ready?'Ollama 已运行 · 固定模型已准备':setup.running===true?(setup.modelReady===false?'Ollama 已运行 · 固定模型未准备':'Ollama 已运行 · 模型状态待检测'):setup.running===false?'Ollama 未运行':setup.installed?'运行组件已安装 · 服务状态待检测':'等待检测或准备';
+ text('#ollamaState',(online&&!locked&&!cleanupPending&&setup?.running===true&&setup?.owned!==true?'上次检测：':'')+stateText);text('#ollamaBadge',!online||!setup?'状态未确认':cleanupPending?'清理待确认':locked?'进行中':ready?'资源已准备':setup.phase==='error'?'需要处理':'尚未就绪');$('#ollamaBadge').dataset.tone=online&&ready&&!locked?'ready':'warn';
+ text('#ollamaDetail',(setup?.runtimeVersion?'Ollama '+setup.runtimeVersion+' · ':'')+'固定模型 qwen3-vl:2b。'+(setup?.detail||'状态轮询不会下载、启动或调用模型。'));
+ const total=Number(setup?.totalBytes)||0,done=Number(setup?.downloadedBytes)||0,downloading=busy&&['downloading_runtime','downloading_model'].includes(setup?.phase);
+ show('#ollamaDownloadArea',downloading);if(total>0){$('#ollamaDownload').max=total;$('#ollamaDownload').value=Math.min(Math.max(0,done),total);}else $('#ollamaDownload').removeAttribute('value');text('#ollamaDownloadText',(!online?'上次进度：':'')+mib(done)+' / '+(total?mib(total):'正在确认下载大小'));
+ $('#ollamaCheck').disabled=!available||locked;$('#ollamaPrepare').disabled=!available||locked||cleanupPending||ready;$('#ollamaStart').disabled=!available||locked||cleanupPending||setup?.installed!==true||setup?.running===true;$('#ollamaStop').disabled=!available||locked||setup?.owned!==true||(setup?.running!==true&&!cleanupPending);$('#ollamaCancel').disabled=!available||!cancellable||ollamaRequest==='cancel';
+ text('#ollamaStop',cleanupPending?'重试停止并确认清理':'停止本插件启动的 Ollama');
+ text('#ollamaPrepare',ready&&!busy?'服务与模型已准备':setup?.phase==='error'?'重试准备并启动':'一键准备并启动');
+ text('#ollamaOwnership',cleanupPending?'本插件启动的进程尚未确认全部退出。请重试停止并确认清理；确认完成前不会重新启动。':setup?.running===true&&setup?.owned!==true?'上次检测到已有服务，可复用但不会接管。页面轮询不会自动联网探测此服务，可点击“检测状态”刷新。请从原启动窗口关闭；本插件不能停止该服务。':setup?.owned===true?'此服务由本插件启动，可用此处停止。启动后的可见 CMD 窗口会保持开启，便于接手。':'“停止”只作用于本插件拥有的进程；已有服务不会被接管。');
+ text('#ollamaNotice',!online?'连接恢复后请检测状态；目前不确认服务是否运行。':ollamaRequest?requests[ollamaRequest]:cleanupPending?'仍保留自有进程的清理责任；停止失败可以继续重试，此状态不表示服务可用。':busy?(phases[setup.phase]||'正在处理')+(cancellable?'；可以取消当前操作，准备完成后服务保持运行。':'；请等待当前操作结束。'):ready?'资源状态已确认；尚未进行看图推理测试。保存并生效后，AI 可按所选来源使用。':setup?.running===false&&setup?.installed?'可启动已安装的 Ollama，或一键准备缺少的模型。':'先检测已有服务，或点击一键准备。资源操作不会自动保存本地模型来源。');
+ show('#ollamaError',!!setup?.error);text('#ollamaError',setup?.error?.error||'');
+}
 function updateForm(){
  const visualDetail=field('visualDetail').value,visualFocus=field('visualFocus').value,screenEnabled=field('screenEnabled').value==='true',screen=latest?.status.screen;
- const localDraft=field('visualUnderstandingBackend').value==='ollama',activeVisual=runtimeVisual(latest?.status||{});
+ const localDraft=field('visualUnderstandingBackend').value==='ollama',managedDraft=field('localVisionSource').value==='managed',activeVisual=runtimeVisual(latest?.status||{});
  if(!localDraft&&!validLocalVisionBudget(field('localVisionMaxTokens').value))field('localVisionMaxTokens').value=savedLocalVisionMaxTokens;
- show('#localVisionOptions',localDraft);show('#localVisionAdvanced',localDraft);show('#localVisionWarning',localDraft&&!field('localVisionModelId').value);
+ show('#localVisionOptions',localDraft);show('#localVisionAdvanced',localDraft);show('#localVisionConnection',!managedDraft);show('#ollamaSetup',localDraft&&managedDraft);show('#localVisionWarning',localDraft&&!managedDraft&&!field('localVisionModelId').value);updateOllama();
  text('#visualUnderstandingHelp',localDraft?'原图交给所选本机 Ollama，主模型只收到描述文字，避免本次原图的主模型图片用量；主模型仍处理文字，可能产生文本费用。小模型可能漏细节，失败不会自动切回主模型看图。':'把准备好的图片直接交给当前主模型，模型须支持图片；若使用云端模型，会产生相应图片用量。');
  text('#visualDetailHelp',visualDetail==='detail'?'更适合小字与局部细节；画面与模型用量可能增加。':visualDetail==='overview'?'更适合先了解整体内容；小字或复杂细节可再指定高清查看。':'按查看任务选择概览或细节；模型仍可在调用时明确指定画质。');
  text('#visualLayoutHelp',field('visualLayout').value==='sheet'?'将多帧排成一张拼图，便于概览；文字与细节可能缩小。':'每帧独立提供，保留各自的时间位置，便于逐帧理解。');
@@ -139,7 +163,7 @@ function render(data){
  text('#imageHint',understanding.local?'主模型只收到描述文字；此处未测试本地连接或视觉能力。':s.mainModelViewing?'当前主模型仍须支持图片；此处未测试模型连接。':'媒体准备与主模型查看分开；需要宿主多模态接口。');
  text('#videoState',!s.mediaPreparation?'媒体处理暂不可用':!decoderReady?'解码组件未就绪':!understanding.capable?'可准备画面 · 等待宿主接口':!understanding.configured?'可准备画面 · 待选择本地模型':'画面采样已就绪');
  text('#visualModeBadge',understanding.local?'本地 Ollama 描述':'主模型直接看');
- text('#localVisionCurrent',understanding.local?'当前运行：本地 Ollama 描述 · '+(!understanding.capable?'宿主临时文字工具暂不可用':!understanding.configured?'尚未选择模型':understanding.busy?'正在生成描述':'已选择模型，实际调用时检查连接与视觉能力')+'。原图不发送给主模型。':'当前运行：主模型直接看图。主模型须支持图片，此处未测试连接。');
+ text('#localVisionCurrent',understanding.local?'当前运行：本地 Ollama 描述 · '+(understanding.managed?'插件准备的 qwen3-vl:2b · ':'已有模型连接 · ')+(!understanding.capable?'宿主临时文字工具暂不可用':!understanding.configured?'尚未选择模型':understanding.busy?'正在生成描述':'已选择模型，实际调用时检查连接与视觉能力')+'。原图不发送给主模型。':'当前运行：主模型直接看图。主模型须支持图片，此处未测试连接。');
  const screenState=screenStateOf(s);
  text('#screenState',screenState);text('#screenBadge',!screen?'暂不可用':!screen.supported?'平台不支持':screen.busy?'采集中':screen.enabled?'已开启':'未开启');$('#screenBadge').dataset.tone=screen?.busy?'warn':screen?.enabled&&screen.supported?'ready':'';
  text('#screenHint',screen?.busy?'当前调用结束后停止采集，不持续监听。':understanding.local?'没有调用时不采集；本地描述后仅交给主模型文字。':'没有调用时不采集；由当前主模型看图。');
@@ -194,6 +218,14 @@ async function persist(applyOnly){
 }
 form.addEventListener('submit',async event=>{event.preventDefault();await persist(false);});
 apply.addEventListener('click',async()=>{await persist(true);});
+const ollamaButtons={check:'#ollamaCheck',prepare:'#ollamaPrepare',start:'#ollamaStart',stop:'#ollamaStop',cancel:'#ollamaCancel'};
+for(const [action,selector]of Object.entries(ollamaButtons))$(selector).addEventListener('click',async()=>{
+ if($(selector).disabled)return;
+ const generation=++ollamaRequestGeneration;mutationGeneration++;ollamaRequest=action;show('#ollamaActionError',false);updateForm();
+ try{const response=await fetch('/plugins/vision/ollama/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const result=await response.json();if(!response.ok||!result.ok)throw Error(result.error||'Ollama 操作未能完成，请检测状态后重试。');if(generation===ollamaRequestGeneration&&result.state)latest={...latest,ollamaSetup:result.state};}
+ catch(error){if(generation===ollamaRequestGeneration){text('#ollamaActionError',error.message||'Ollama 操作结果无法确认，请检测状态。');show('#ollamaActionError',true);}}
+ finally{if(generation===ollamaRequestGeneration){ollamaRequest='';updateForm();await refresh();}}
+});
 prepare.addEventListener('click',async()=>{if(prepare.disabled)return;preparing=true;prepareMessage='正在提交准备请求…';updateForm();try{const response=await fetch('/plugins/vision/audio/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const data=await response.json();if(!response.ok||!data.ok)throw Error(data.error||'无法开始准备');prepareMessage='已开始准备，请查看进度。';}catch(error){prepareMessage=error.message||'无法开始准备';}finally{preparing=false;await refresh();updateForm();}});
 await refresh();const timer=setInterval(()=>{if(!document.hidden)void refresh();},2000);addEventListener('pagehide',()=>clearInterval(timer),{once:true});
 </script></html>`;

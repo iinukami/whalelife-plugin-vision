@@ -16,8 +16,10 @@ import { registerUnderstandTool } from './understand-tool.ts';
 import { settingsPage } from './page.ts';
 import { registerViewTool } from './view-tool.ts';
 import { VisualToolScope } from './visual-tool-scope.ts';
+import { OllamaManager } from './ollama-manager.ts';
 
 export async function apply(ctx: Context) {
+  const ollama = new OllamaManager(fileURLToPath(new URL('../data/ollama/', import.meta.url)), ctx.signal);
   let app: Vision | undefined, config: Config = { ...defaults }, error: ReturnType<typeof safeError> | undefined;
   let pendingReload = false, applying = false;
   let appliedRevision: string | undefined, applyError: ReturnType<typeof safeError> | undefined;
@@ -41,13 +43,19 @@ export async function apply(ctx: Context) {
     if (failed?.status === 'rejected') throw failed.reason;
     owned = undefined;
   };
-  ctx.effect(() => async () => { await saving; await stopOwned(); });
+  ctx.effect(() => async () => {
+    await saving;
+    const stopped = await Promise.allSettled([stopOwned(), ollama.close()]);
+    const failed = stopped.find(result => result.status === 'rejected');
+    if (failed?.status === 'rejected') throw failed.reason;
+  });
+  await ollama.init();
   const startOwned = async () => {
     ctx.signal.throwIfAborted();
     const next = new Vision(fileURLToPath(new URL('../data/media/', import.meta.url)), config, ctx.signal);
     const tools = new VisualToolScope();
     owned = { app: next, tools };
-    next.localVision = new LocalVision(config.visualUnderstanding, ctx.signal, id => ctx.models.connection(id));
+    next.localVision = new LocalVision(config.visualUnderstanding, ctx.signal, id => ctx.models.connection(id), () => ollama.connection());
     await next.start();
     // Missing/corrupt local speech resources never disable already working vision.
     try {
@@ -114,7 +122,7 @@ export async function apply(ctx: Context) {
     let models: { id: string; name: string; type: string }[] = [];
     try { models = ctx.models.list().map(m => ({ id: m.id, name: m.name, type: m.type })); } catch { /* No selected connection is probed here. */ }
     res.end(JSON.stringify({ status: status(), config, audioDefaults, visualDefaults, screenDefaults, localVisionDefaults, models,
-      pendingReload, revision: revision(), applySupported: true, applying, appliedRevision, applyError }));
+      pendingReload, revision: revision(), applySupported: true, applying, appliedRevision, applyError, ollamaSetup: ollama.status() }));
   }));
   ctx.web.api('/plugins/vision/config', wrap(async (req, res, { signal }) => {
     if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
@@ -165,6 +173,21 @@ export async function apply(ctx: Context) {
     res.statusCode = result.ok ? 200 : 400;
     res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.end(JSON.stringify(result));
   }));
+  for (const action of ['check', 'prepare', 'start', 'stop', 'cancel'] as const) {
+    ctx.web.api('/plugins/vision/ollama/' + action, wrap(async (req, res, { signal }) => {
+      if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+      if (!req.headers['content-type']?.startsWith('application/json')) fail('invalid_input', '需要 JSON 请求。');
+      let length = 0; const parts: Buffer[] = [];
+      for await (const chunk of req) { length += chunk.length; if (length > 1024) fail('invalid_input', '本地模型操作请求过大。'); parts.push(Buffer.from(chunk)); }
+      signal.throwIfAborted(); ctx.signal.throwIfAborted();
+      const body = object(JSON.parse(Buffer.concat(parts).toString('utf8')));
+      if (Object.keys(body).length) fail('invalid_input', '本地模型操作不接受自定义路径、地址或命令。');
+      // Explicit setup jobs survive the response connection, but not plugin shutdown.
+      await ollama.action(action);
+      res.statusCode = 202; res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ ok: true, state: ollama.status() }));
+    }));
+  }
   ctx.web.api('/plugins/vision/audio/prepare', wrap(async (req, res, { signal }) => {
     if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
     if (!req.headers['content-type']?.startsWith('application/json')) fail('invalid_input', '需要 JSON 请求。');

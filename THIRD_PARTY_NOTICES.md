@@ -24,6 +24,12 @@
 
 下载的 QwenAudio/SenseVoice 镜像归档来自 `runtime-llamacpp-v0.2.1`；其发行说明指向 modelscope/FunASR 上述实际构建修订。不得将镜像仓库同名标签的旧代码误认为可执行文件完整来源。原生构建的其他附带材料仍按各自上游声明保留；本文件不声称完成了所有编译器运行库/系统组件的重新许可。重新分发权重或修改第三方资源时，应保留其适用版权/NOTICE 并记录修改。
 
+## 按需下载的本地视觉组件
+
+- **Ollama 0.40.16**：官方项目采用 MIT；固定组件来源、大小和 SHA-256 见 [vendor/ollama.json](vendor/ollama.json) 及其官方 LICENSE 链接。官方下载归档中的 llama.cpp、ggml、GPU 运行库及其他材料保留各自许可证，不能用 Ollama 的 MIT 许可概括所有附带二进制。
+- **Qwen3-VL 2B**：通过 [Ollama 官方模型库](https://ollama.com/library/qwen3-vl:2b) 按需准备；模型附带许可证及内容摘要由 Ollama 保存，模型许可不替代用户媒体权利。
+- Ollama 组件与视觉模型不嵌入本插件发行包，仅用户明确点击后下载至本机。原有 FFmpeg 二进制发布门禁保持，不因新增下载入口而放宽。
+
 ## 设计研究
 
 视觉设计研究参考 [SAOS-3624/dsh-see-now，93342e6122b278139281d71346314048170a034b](https://github.com/SAOS-3624/dsh-see-now/tree/93342e6122b278139281d71346314048170a034b) 的变化采样、时间标记和拼图思路；采样与处理代码独立编写，未复制其源码、媒体或测试素材。
