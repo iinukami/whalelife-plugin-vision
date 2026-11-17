@@ -4,9 +4,10 @@
  */
 import type { Context, ToolContentPart } from 'whalelife';
 import type { Vision } from './runtime.ts';
+import { registerVisualTool, presentVisual, visualQuestion } from './visual-route.ts';
 import { object, identity, safeError, type PrepareInput, type PreparedMedia } from './types.ts';
 
-export type ViewInput = Omit<PrepareInput, 'sessionId'>;
+export type ViewInput = Omit<PrepareInput, 'sessionId'> & { question?: string };
 /** Image bytes travel ONLY through the host's declared native, transient content contract. */
 export function visualContent(result: PreparedMedia): ToolContentPart[] {
   const text = JSON.stringify({
@@ -19,13 +20,13 @@ export function visualContent(result: PreparedMedia): ToolContentPart[] {
       detail: result.detail === 'detail' || i.frames.some(frame => frame.role === 'focus') ? 'high' as const : 'auto' as const }))];
 }
 export function registerViewTool(ctx: Context, app: Vision): boolean {
-  if (typeof ctx.tools.registerMultimodal !== 'function') return false;
-  ctx.tools.registerMultimodal<ViewInput, Record<string, unknown>>({
+  return registerVisualTool<ViewInput>(ctx, app, {
     name: 'vision_view', danger: 'safe',
-    description: '直接查看其他插件交给当前会话的图片或视频引用。媒体由当前聊天主模型读取。只传 mediaRef，不传 URL、文件路径、base64 或会话 ID。视频默认查看前30秒，可用 fromSeconds/toSeconds 分段（最多60秒），或 atSeconds 指定时刻补看；不能把采样说成看过每帧，当前不含音频。detail=detail 可看高清细节，crop 可指定0–1比例区域，layout=sheet 可查看带编号和时间的拼图。引用过期请让来源插件重新取得媒体。',
+    description: '直接查看其他插件交给当前会话的图片或视频引用。画面按用户设置由主模型直接查看或本地 Ollama 生成文字描述。只传 mediaRef，不传 URL、文件路径、base64 或会话 ID。视频默认查看前30秒，可用 fromSeconds/toSeconds 分段（最多60秒），或 atSeconds 指定时刻补看；不能把采样说成看过每帧，当前不含音频。detail=detail 可看高清细节，crop 可指定0–1比例区域，layout=sheet 可查看带编号和时间的拼图。引用过期请让来源插件重新取得媒体。',
     schema: {
       type: 'object', additionalProperties: false, required: ['mediaRef'], properties: {
       mediaRef: { type: 'string', description: '来源插件返回的本会话短期视觉引用' },
+      question: { type: 'string', maxLength: 1000, description: '本次想看清的问题，尤其供本地视觉模型定向描述；不传完整聊天记录。' },
       fromSeconds: { type: 'number', description: '片段开始秒数；不与 atSeconds 同用' },
       toSeconds: { type: 'number', description: '片段结束秒数，每段最多60秒' },
       atSeconds: { type: 'number', description: '单独补看的时刻，必须早于媒体结束' },
@@ -40,6 +41,7 @@ export function registerViewTool(ctx: Context, app: Vision): boolean {
     async run(args, session) {
       try {
         const o = object(args);
+        const question = visualQuestion(o.question);
         const result = await app.prepare({
           sessionId: identity(session.id), mediaRef: o.mediaRef as string,
           fromSeconds: o.fromSeconds as number | undefined, toSeconds: o.toSeconds as number | undefined,
@@ -47,7 +49,9 @@ export function registerViewTool(ctx: Context, app: Vision): boolean {
           layout: o.layout as PrepareInput['layout'], crop: o.crop as PrepareInput['crop'],
           focus: o.focus as PrepareInput['focus'], maxFrames: o.maxFrames as number | undefined, sampleFps: o.sampleFps as PrepareInput['sampleFps'],
         }, { signal: session.signal });
-        return { content: visualContent(result), receipt: { action: 'prepare_visual_input', outcome: 'prepared',
+        const presented = await presentVisual(app, result, question, () => visualContent(result), { signal: session.signal }, identity(session.id));
+        return { content: presented.content, receipt: { action: 'prepare_visual_input', outcome: presented.truncated ? 'partial' : 'prepared',
+          ...(presented.backend === 'ollama' ? { backend: 'ollama', truncated: presented.truncated } : {}),
           kind: result.info.kind, images: result.images.length, fromSeconds: result.coverage.fromSeconds, toSeconds: result.coverage.toSeconds } };
       } catch (e) {
         const error = safeError(e);
@@ -56,5 +60,4 @@ export function registerViewTool(ctx: Context, app: Vision): boolean {
       }
     },
   });
-  return true;
 }

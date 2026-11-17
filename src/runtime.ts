@@ -8,9 +8,11 @@ import { inspectMedia, prepareMedia } from './media.ts';
 import { audioRange, extractAudio, audioMimes } from './audio-media.ts';
 import { audioTasks, type AudioTask } from './audio-types.ts';
 import type { AudioEngine } from './audio-engine.ts';
+import type { LocalVision } from './local-vision.ts';
+import { localVisionDefaults } from './local-vision.ts';
 import { ScreenCapture, screenDefaults, type ScreenInput } from './screen.ts';
 import { VERSION, MiB, identity, reference, object, fail, safeError, VisionError, visualDefaults,
-  type Config, type VisionService, type CallOptions, type PrepareInput, type UnderstandInput, type UnderstoodMedia } from './types.ts';
+  type Config, type VisionService, type CallOptions, type PrepareInput, type UnderstandInput, type UnderstoodMedia, type PreparedImage } from './types.ts';
 
 export class Vision implements VisionService {
   config: Config;
@@ -20,6 +22,8 @@ export class Vision implements VisionService {
   pending = new Set<Promise<unknown>>();
   closed = false;
   mainModelViewing = false;
+  localDescriptionTools = false;
+  localVision?: LocalVision;
   cleanupFailed = false;
   timer?: ReturnType<typeof setInterval>;
   stopPromise?: Promise<void>;
@@ -44,9 +48,13 @@ export class Vision implements VisionService {
   status() {
     return { version: VERSION, serviceVersion: '1.0.0', mediaPreparation: !this.closed && !this.signal.aborted,
       mainModelViewing: this.mainModelViewing && !this.closed && !this.signal.aborted,
-      reason: this.mainModelViewing ? 'ready' : 'multimodal_required',
-      modelSupport: 'selected_provider_must_accept_images',
-      message: this.mainModelViewing ? '可通过 vision_view 将图片和视频采样画面交给当前主模型。' : '媒体准备服务可用；主模型查看等待宿主公开多模态工具接口。',
+      localDescriptionTools: this.localDescriptionTools && !this.closed && !this.signal.aborted,
+      localVision: this.localVision?.status() ?? { backend: this.config.visualUnderstanding?.backend ?? localVisionDefaults.backend, configured: false, busy: false },
+      reason: this.config.visualUnderstanding?.backend === 'ollama' ? this.localDescriptionTools ? 'local_description_selected' : 'transient_required' : this.mainModelViewing ? 'ready' : 'multimodal_required',
+      modelSupport: this.config.visualUnderstanding?.backend === 'ollama' ? 'local_model_must_accept_images_main_receives_text' : 'selected_provider_must_accept_images',
+      message: this.config.visualUnderstanding?.backend === 'ollama'
+        ? '已选择本地视觉描述；主模型只收到文字。配置存在不代表 Ollama 或模型已通过实际调用。'
+        : this.mainModelViewing ? '可通过 vision_view 将图片和视频采样画面交给当前主模型。' : '媒体准备服务可用；主模型查看等待宿主公开多模态工具接口。',
       supported: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', ...audioMimes],
       audiovisualServiceVersion: '1.0.0', audio: this.audio?.status() ?? { unavailable: true, ...this.audioInitializationError },
       visual: { ...visualDefaults, ...this.config.visual }, screen: this.screen.status(),
@@ -141,6 +149,14 @@ export class Vision implements VisionService {
   captureScreen(input: ScreenInput, options?: CallOptions) {
     return this.operation(signal => this.screen.capture(input, signal, { ...visualDefaults, ...this.config.visual }), options);
   }
+  describeVisual(images: PreparedImage[], question?: string, options?: CallOptions, media?: { sessionId: string; mediaRef: string }) {
+    return this.operation(signal => {
+      if (!this.localVision) fail('local_vision_unavailable', '本地视觉模块不可用，请检查设置。');
+      const run = () => this.localVision!.describe(images, question, signal);
+      // Keep the source reference live through local inference and reject a late result after release/expiry.
+      return media ? this.store.use(identity(media.sessionId), reference(media.mediaRef), signal, run) : run();
+    }, options, 240_000);
+  }
   stop(): Promise<void> {
     if (this.stopPromise) return this.stopPromise;
     this.closed = true;
@@ -148,6 +164,7 @@ export class Vision implements VisionService {
     if (this.timer) clearInterval(this.timer);
     this.stopPromise = (async () => {
       await this.screen.stop();
+      await this.localVision?.stop();
       await this.audio?.stop();
       await Promise.allSettled([...this.pending]);
       try { await this.store.stop(); } catch (error) { this.cleanupFailed = true; throw error; }

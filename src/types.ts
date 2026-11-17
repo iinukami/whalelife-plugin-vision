@@ -4,7 +4,8 @@
  */
 import { audioDefaults, type AudioSettings, type AudioTask, type AudioOutcome } from './audio-types.ts';
 import { screenSettingsOf, type ScreenSettings } from './screen.ts';
-export const VERSION = '0.3.0';
+import { localVisionSettingsOf, type LocalVisionSettings } from './local-vision.ts';
+export const VERSION = '0.4.0';
 export const MiB = 1024 * 1024;
 export const MAX_PIXELS = 40_000_000;
 export const MAX_OUTPUT = 8 * MiB;
@@ -66,7 +67,7 @@ export interface AudiovisualService extends VisionService {
   readonly audiovisualApiVersion: '1.0.0';
   understand(input: UnderstandInput, options?: CallOptions): Promise<UnderstoodMedia>;
 }
-export type Config = { ttlSeconds: number; maxMediaMiB: number; maxTotalMiB: number; audio?: AudioSettings; visual?: VisualSettings; screen?: ScreenSettings };
+export type Config = { ttlSeconds: number; maxMediaMiB: number; maxTotalMiB: number; audio?: AudioSettings; visual?: VisualSettings; screen?: ScreenSettings; visualUnderstanding?: LocalVisionSettings };
 export const defaults: Config = { ttlSeconds: 1800, maxMediaMiB: 64, maxTotalMiB: 256 };
 export class VisionError extends Error {
   code: string;
@@ -134,6 +135,7 @@ export function configOf(value: unknown): Config {
   }
   if (o.visual !== undefined) result.visual = visualSettingsOf(o.visual);
   if (o.screen !== undefined) result.screen = screenSettingsOf(o.screen);
+  if (o.visualUnderstanding !== undefined) result.visualUnderstanding = localVisionSettingsOf(o.visualUnderstanding);
   // Legacy decoder paths are deliberately ignored; saved media limits remain valid.
   return result;
 }

@@ -172,3 +172,159 @@ for (const baseline of ['current', '213b52b']) test(`packaged plugin on ${baseli
   const disk = await readFile(join(run, 'plugins/vision/data/config.json'), 'utf8');
   assert.equal(JSON.parse(disk).ttlSeconds, 60);
 });
+
+for (const baseline of ['current', '213b52b']) test(`local visual routing on ${baseline}: loopback Ollama, text-only main input, settings compatibility and transient isolation`, { timeout: 60_000 }, async t => {
+  const f = await temporaryDirectory(t);
+  let source = host;
+  if (baseline !== 'current') {
+    source = join(f.dir, 'host'); await mkdir(source);
+    const archive = join(f.dir, 'host.tar');
+    const git = spawnSync('git', ['-C', host, 'archive', '--format=tar', '--output=' + archive, 'refs/tags/' + baseline, 'core', 'package.json'], { encoding: 'utf8', windowsHide: true });
+    assert.equal(git.status, 0, git.stderr);
+    const tar = spawnSync('tar', ['-xf', archive, '-C', source], { encoding: 'utf8', windowsHide: true });
+    assert.equal(tar.status, 0, tar.stderr);
+    await symlink(join(host, 'node_modules'), join(source, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+  }
+  const localDescription = 'SYNTHETIC_OLLAMA_VISUAL_EVIDENCE_NOT_FOR_ARCHIVE';
+  const finalReply = 'SYNTHETIC_MAIN_REPLY_AFTER_LOCAL_VISION';
+  const personaMarker = 'SYNTHETIC_LOCAL_VISION_MAIN_PERSONA';
+  const question = 'Which synthetic color is visible?';
+  const mainKey = 'synthetic-main-local-route-key', localKey = 'synthetic-local-route-key';
+  const mainCalls: any[] = [], localCalls: { url: string; body: any; authorization: string | undefined }[] = [], events: any[] = [];
+  let viewRef = '', normalReply = false;
+  const server = createServer(async (req, res) => {
+    if (req.method === 'GET') { res.setHeader('Content-Type', 'application/json'); res.end('{"data":[]}'); return; }
+    let raw = ''; for await (const chunk of req) raw += chunk;
+    const body = JSON.parse(raw || '{}');
+    if (req.url === '/api/show' || req.url === '/api/chat') {
+      localCalls.push({ url: req.url, body, authorization: req.headers.authorization });
+      res.setHeader('Content-Type', 'application/json');
+      res.end(req.url === '/api/show' ? JSON.stringify({ capabilities: ['vision', 'completion'] })
+        : JSON.stringify({ model: 'synthetic-local-vision', message: { role: 'assistant', content: localDescription },
+          done: true, done_reason: 'stop', prompt_eval_count: 17, eval_count: 8 }));
+      return;
+    }
+    if (req.url !== '/main/v1/chat/completions') { res.statusCode = 404; res.end(); return; }
+    mainCalls.push(body);
+    const answered = normalReply || body.messages.some((message: any) => message.role === 'tool');
+    const delta = answered ? { content: normalReply ? 'SYNTHETIC_LOCAL_VISION_FOLLOWUP' : finalReply }
+      : { tool_calls: [{ index: 0, id: 'synthetic-local-vision-call', type: 'function',
+        function: { name: 'vision_view', arguments: JSON.stringify({ mediaRef: viewRef, question }) } }] };
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.end('data: ' + JSON.stringify({ choices: [{ delta, finish_reason: answered ? 'stop' : 'tool_calls' }],
+      usage: { prompt_tokens: 20, completion_tokens: 4, total_tokens: 24 } }) + '\n\ndata: [DONE]\n\n');
+  });
+  f.cleanup.push(() => new Promise<void>(done => { server.closeAllConnections(); server.close(() => done()); }));
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  const port = (server.address() as { port: number }).port, run = join(f.dir, 'runtime');
+  await mkdir(join(run, 'config'), { recursive: true });
+  await mkdir(join(run, 'plugins'), { recursive: true });
+  await cp(join(root, 'dist/vision'), join(run, 'plugins/vision'), { recursive: true });
+  await mkdir(join(run, 'plugins/vision/data'), { recursive: true });
+  const localConfig = { backend: 'ollama', modelId: 'fixture', maxTokens: 512 };
+  await writeFile(join(run, 'plugins/vision/data/config.json'), JSON.stringify({ ttlSeconds: 1800, maxMediaMiB: 64,
+    maxTotalMiB: 256, visualUnderstanding: localConfig }));
+  const consumer = join(run, 'plugins/mock-local-source'); await mkdir(consumer);
+  await writeFile(join(consumer, 'plugin.yaml'), 'id: mock-local-source\nname: Synthetic local vision source\nversion: 1.0.0\ndescription: Isolated test fixture\n');
+  await writeFile(join(consumer, 'index.ts'), `export function apply(ctx) {
+    ctx.provide('mock-local-source', {
+      newSession: () => ctx.sessions.create('Synthetic local visual session'),
+      run: (sessionId, text) => ctx.sessions.run({ sessionId, text, persona: 'a', permission: 'full' }),
+    });
+  }`);
+  await writeFile(join(run, 'a.md'), personaMarker);
+  await writeFile(join(run, 'config/config.json'), JSON.stringify({
+    log: { level: 'error' }, web: { port: 0 },
+    providers: [
+      { id: 'main', name: 'Synthetic main', protocol: 'openai-compatible', base_url: `http://127.0.0.1:${port}/main/v1`, api_key: mainKey },
+      { id: 'local', name: 'Synthetic local', protocol: 'openai-compatible', base_url: `http://127.0.0.1:${port}/v1`, api_key: localKey,
+        proxy_url: '', timeout_seconds: 10 },
+    ],
+    models: [
+      { id: 'selected-main', provider: 'main', name: 'Selected main', model: 'synthetic-main-model', type: 'chat', enabled: true },
+      { id: 'fixture', provider: 'local', name: 'Synthetic local vision', model: 'synthetic-local-vision', type: 'chat', enabled: true },
+    ],
+    model_bindings: { chat: 'selected-main' }, personas: { a: { name: 'Synthetic', file: 'a.md', model: 'selected-main', permission: 'full' } },
+    channels: { web: { persona: 'a', permission: 'full' } }, memory: { root: 'memory' },
+  }));
+  const { boot } = await import(pathToFileURL(join(source, 'core/index.ts')).href);
+  let app: any; f.cleanup.push(async () => { await app?.close(); });
+  app = await boot(run);
+  app.runtime.events.on('tool/called', (event: any) => events.push(event));
+  const record = app.runtime.records.get('vision');
+  assert.equal(record.status, 'active', record.error); assert.notEqual(record.execution.pid, process.pid);
+  const transientSupported = typeof app.tools.registerTransient === 'function';
+  if (baseline === 'current') assert.equal(transientSupported, true);
+  const registered = app.tools.list().map((tool: any) => tool.function.name);
+  for (const name of ['vision_view', 'media_understand', 'screen_view']) assert.equal(registered.includes(name), transientSupported);
+  const url = `http://127.0.0.1:${app.web.server.address().port}`;
+  const login = await fetch(url + '/api/login', { method: 'POST', body: '{}' });
+  const cookie = login.headers.get('set-cookie')!.split(';')[0];
+  const getState = async () => (await fetch(url + '/plugins/vision/state', { headers: { Cookie: cookie } })).json() as Promise<any>;
+  const state = await getState();
+  assert.equal(state.status.localDescriptionTools, transientSupported);
+  assert.equal(state.status.localVision.backend, 'ollama');
+  assert.deepEqual(state.config.visualUnderstanding, localConfig);
+  assert.equal(localCalls.length, 0, 'startup and state polling must not contact local models');
+  const oldSave = await fetch(url + '/plugins/vision/config', { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ revision: state.revision, config: { ttlSeconds: 60, maxMediaMiB: 64, maxTotalMiB: 256 } }) });
+  assert.equal(oldSave.status, 200);
+  const saved = await getState();
+  assert.deepEqual(saved.config.visualUnderstanding, localConfig, 'an older settings client must not erase the explicit local route');
+  assert.equal(saved.pendingReload, true); assert.equal(saved.status.ttlSeconds, 1800);
+  assert.ok(!JSON.stringify(saved).includes(mainKey) && !JSON.stringify(saved).includes(localKey));
+  if (!transientSupported) {
+    assert.equal(localCalls.length, 0); assert.equal(mainCalls.length, 0);
+    assert.equal(state.status.mediaPreparation, true, 'old hosts retain media preparation but do not downgrade local text to persistent tools');
+    return;
+  }
+  const service = app.runtime.services.get('vision').value, sourceService = app.runtime.services.get('mock-local-source').value;
+  const sessionId = await sourceService.newSession(), otherSessionId = await sourceService.newSession();
+  const bytes = await png();
+  const offered = await service.offerMedia({ sessionId, mime: 'image/png', base64: bytes.toString('base64') });
+  const refused = await app.tools.call('vision_view', { mediaRef: offered.mediaRef, sessionId }, { id: otherSessionId, permission: 'full' });
+  assert.match(JSON.stringify(refused), /media_unavailable/); assert.equal(localCalls.length, 0);
+  viewRef = offered.mediaRef;
+  assert.equal(await sourceService.run(sessionId, 'SYNTHETIC_LOCAL_VISION_REQUEST'), finalReply);
+  assert.equal(mainCalls.length, 2); assert.deepEqual(localCalls.map(call => call.url), ['/api/show', '/api/chat']);
+  assert.equal(localCalls[0].body.model, 'synthetic-local-vision');
+  const local = localCalls[1].body, localWire = JSON.stringify(local);
+  assert.equal(local.model, 'synthetic-local-vision'); assert.equal(local.options.num_predict, 512); assert.equal(local.stream, false);
+  assert.equal(local.messages.length, 2); assert.equal(local.messages[1].images.length, 1);
+  const jpegBytes = Buffer.from(local.messages[1].images[0], 'base64');
+  assert.deepEqual([...jpegBytes.subarray(0, 3)], [255, 216, 255], 'local provider alone receives the prepared JPEG');
+  assert.ok(localWire.includes(question));
+  for (const marker of [personaMarker, mainKey, localKey, 'SYNTHETIC_LOCAL_VISION_REQUEST']) assert.ok(!localWire.includes(marker));
+  assert.ok(localCalls.every(call => call.authorization === undefined), 'local adapter does not forward unrelated provider credentials');
+  assert.ok(mainCalls.every(call => call.model === 'synthetic-main-model'));
+  assert.ok(mainCalls.every(call => JSON.stringify(call.messages).includes(personaMarker)), 'main persona stays on the main request');
+  const mainWire = JSON.stringify(mainCalls);
+  assert.ok(mainWire.includes(localDescription));
+  assert.doesNotMatch(mainWire, /"type":"image_url"|data:image\//);
+  assert.ok(!mainWire.includes(bytes.toString('base64')));
+  assert.ok(!mainWire.includes(local.messages[1].images[0]));
+  const toolMessage = mainCalls[1].messages.find((message: any) => message.role === 'tool');
+  assert.equal(typeof toolMessage.content, 'string'); assert.ok(toolMessage.content.includes(localDescription));
+  await app.runtime.events.drain();
+  const toolEvents = events.filter(event => event.name === 'vision_view');
+  assert.equal(toolEvents.length, 2); assert.ok(toolEvents.every(event => event.transient === true));
+  assert.ok(toolEvents.some(event => event.result?.backend === 'ollama'));
+  assert.ok(!JSON.stringify(toolEvents).includes(localDescription));
+  const persisted: string[] = [];
+  async function collect(directory: string) {
+    for (const file of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, file.name);
+      if (file.isDirectory()) await collect(path); else persisted.push(await readFile(path, 'utf8'));
+    }
+  }
+  await collect(join(run, 'memory')); await collect(join(run, 'logs'));
+  const archive = persisted.join('\n');
+  assert.ok(archive.includes(finalReply)); assert.ok(archive.includes('prepare_visual_input'));
+  for (const marker of [localDescription, question, bytes.toString('base64'), local.messages[1].images[0], mainKey, localKey]) assert.ok(!archive.includes(marker));
+  normalReply = true;
+  await sourceService.run(sessionId, 'SYNTHETIC_LOCAL_VISION_FOLLOWUP_REQUEST');
+  assert.ok(!JSON.stringify(mainCalls.at(-1)).includes(localDescription));
+  assert.equal(localCalls.length, 2, 'later text-only turns do not replay local inference');
+  await app.runtime.action('vision', 'stop');
+  assert.deepEqual(await readdir(join(run, 'plugins/vision/data/media')), []);
+});

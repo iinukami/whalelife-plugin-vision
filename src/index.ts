@@ -10,6 +10,7 @@ import { configOf, defaults, visualDefaults, fail, safeError, VERSION, object, t
 import { screenDefaults } from './screen.ts';
 import { registerScreenTool } from './screen-tool.ts';
 import { audioDefaults } from './audio-types.ts';
+import { LocalVision, localVisionDefaults } from './local-vision.ts';
 import { AudioEngine } from './audio-engine.ts';
 import { registerUnderstandTool } from './understand-tool.ts';
 import { settingsPage } from './page.ts';
@@ -25,6 +26,7 @@ export async function apply(ctx: Context) {
     config = configOf(await ctx.config.read());
     ctx.signal.throwIfAborted();
     app = new Vision(fileURLToPath(new URL('../data/media/', import.meta.url)), config, ctx.signal);
+    app.localVision = new LocalVision(config.visualUnderstanding, ctx.signal, id => ctx.models.connection(id));
     await app.start();
     // Missing/corrupt local speech resources never disable already working vision.
     try {
@@ -44,11 +46,15 @@ export async function apply(ctx: Context) {
     release: (input, options) => ready().release(input, options),
   };
   ctx.provide('vision', { ...service, audiovisualApiVersion: '1.0.0', understand: (input: Parameters<Vision['understand']>[0], options?: Parameters<Vision['understand']>[1]) => ready().understand(input, options) });
-  if (app) app.mainModelViewing = registerViewTool(ctx, app);
+  if (app) {
+    const viewing = registerViewTool(ctx, app);
+    app.mainModelViewing = typeof ctx.tools.registerMultimodal === 'function';
+    app.localDescriptionTools = config.visualUnderstanding?.backend === 'ollama' && viewing;
+  }
   if (app) registerUnderstandTool(ctx, app);
   if (app) registerScreenTool(ctx, app);
   ctx.tools.register({ name: 'vision_status', danger: 'safe', schema: {},
-    description: '检查媒体准备和主模型查看能力。mainModelViewing 表示宿主提供原生图片工具接口；所选模型仍须支持图片。准备完成不代表模型已经理解图片或视频。',
+    description: '检查媒体准备、主模型原生查看和本地视觉描述状态。mainModelViewing 只表示宿主原生图片接口，localDescriptionTools 表示本地文字工具；配置存在不代表所选模型已经通过实际调用。',
     run: status });
   const wrap = (handler: PluginHandler): PluginHandler => async (req, res, context) => {
     try { await handler(req, res, context); }
@@ -62,7 +68,7 @@ export async function apply(ctx: Context) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     let models: { id: string; name: string; type: string }[] = [];
     try { models = ctx.models.list().map(m => ({ id: m.id, name: m.name, type: m.type })); } catch { /* No selected connection is probed here. */ }
-    res.end(JSON.stringify({ status: status(), config, audioDefaults, visualDefaults, screenDefaults, models, pendingReload, revision: revision() }));
+    res.end(JSON.stringify({ status: status(), config, audioDefaults, visualDefaults, screenDefaults, localVisionDefaults, models, pendingReload, revision: revision() }));
   }));
   ctx.web.api('/plugins/vision/config', wrap(async (req, res, { signal }) => {
     if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
@@ -77,6 +83,7 @@ export async function apply(ctx: Context) {
       ...(incoming.audio === undefined && config.audio ? { audio: config.audio } : {}),
       ...(incoming.visual === undefined && config.visual ? { visual: config.visual } : {}),
       ...(incoming.screen === undefined && config.screen ? { screen: config.screen } : {}),
+      ...(incoming.visualUnderstanding === undefined && config.visualUnderstanding ? { visualUnderstanding: config.visualUnderstanding } : {}),
     });
     const change = saving.then(async () => {
       signal.throwIfAborted(); ctx.signal.throwIfAborted();

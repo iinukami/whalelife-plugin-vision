@@ -1,6 +1,6 @@
 # vision 服务契约
 
-插件版本 0.3.0，插件 ID 保持 `vision`。原有视觉服务版本 `1.0.0` 和视听扩展 `audiovisualApiVersion:"1.0.0"` 继续兼容。公开类型见 `src/types.ts` 与 `src/audio-types.ts`。旧 `prepare()` / `vision_view` 不包含声音，保留 `audioIncluded:false`。
+插件版本 0.4.0，插件 ID 保持 `vision`。原有视觉服务版本 `1.0.0` 和视听扩展 `audiovisualApiVersion:"1.0.0"` 继续兼容。公开类型见 `src/types.ts` 与 `src/audio-types.ts`。旧 `prepare()` / `vision_view` 不包含声音，保留 `audioIncluded:false`。
 
 ## 依赖、授权和来源
 
@@ -33,13 +33,25 @@
 
 ## 按需看屏工具
 
-`screen_view` 使用同一公开临时多模态工具接口；无此接口时不注册。参数为 `mode?:'snapshot'|'observe'`、`target?:'screen'|'window'`、`seconds?:number`（observe 为2–60）。不接收会话ID、路径或脚本。真实会话从工具上下文固定，缺少会话拒绝；调用取消信号和插件停用信号传到采集进程。
+`screen_view` 在默认直接看图模式使用公开临时多模态工具接口；本地描述模式使用公开临时文字接口，缺少对应接口时不注册，不退回普通持久工具。参数为 `mode?:'snapshot'|'observe'`、`target?:'screen'|'window'`、`seconds?:number`（observe 为2–60），以及下述可选观察问题。不接收会话ID、路径或脚本。真实会话从工具上下文固定，缺少会话拒绝；调用取消信号和插件停用信号传到采集进程。
 
 `config.screen` 为 `{enabled:boolean,target:'screen'|'window',seconds:number}`，默认 `false/window/10`。enabled 关闭时不启动采集；启动插件、读取状态和配置保存均不采集。仅支持 Windows，screen 指主屏幕，window 固定采集开始时的窗口并跟随其位置，只能采集可见区域，不承诺遮挡内容。窗口失效或无法采集时明确失败。
 
-看屏图片只在本次调用内存中存在，返回真实采样时间和覆盖信息，无持久截图、旧图复用、媒体路径或跨会话缓存。`coverage.requestedSampleIntervalSeconds` 只表示目标间隔，负载可能令实际间隔变长；实际画面时刻以 `selectedTimes` 为准，`observedSeconds` 为首尾实际时差。完整 observe 时段采集后在有限预算中选帧；一次只允许一个看屏任务，忙时拒绝，取消等待子进程退出。图像以独立原比例 JPEG 提供，不含声音，不能回溯调用前内容。工具回执只保留动作、结果、模式、目标种类和图片数量，原图和描述不进入回执。主模型云端连接会接收截图，普通最终回答及显式启用的宿主诊断遵循宿主保留规则。
+看屏图片只在本次调用内存中存在，返回真实采样时间和覆盖信息，无持久截图、旧图复用、媒体路径或跨会话缓存。`coverage.requestedSampleIntervalSeconds` 只表示目标间隔，负载可能令实际间隔变长；实际画面时刻以 `selectedTimes` 为准，`observedSeconds` 为首尾实际时差。完整 observe 时段采集后在有限预算中选帧；一次只允许一个看屏任务，忙时拒绝，取消等待子进程退出。图像以独立原比例 JPEG 提供，不含声音，不能回溯调用前内容。工具回执只保留动作、结果、模式、目标种类和图片数量，原图和描述不进入回执。直接看图模式的主模型云端连接会接收截图，本地描述模式只交付文字；普通最终回答及显式启用的宿主诊断遵循宿主保留规则。
 
 `status()` 兼容增加实际 `visual` 设置及 `screen` 的开关、平台支持和繁忙状态；平台支持不证明真实桌面采集或所选模型已经验收。看屏未扩展跨插件媒体服务，外部来源仍沿用已有媒体引用方法。
+
+## 本地视觉描述（0.4.0）
+
+`config.visualUnderstanding?:{backend:'main'|'ollama',modelId:string,maxTokens:number}`，缺省保持 `main/空ID/512`；maxTokens 为128–1024整数。旧设置客户端省略整个对象时保留已保存设置，修改仍需重载。modelId 为宿主统一模型配置 ID，通过 `ctx.models.connection(id)` 读取明确连接快照，不是模型裸名称；初始化和读取状态不调用模型。
+
+本地描述只影响 `vision_view`、`media_understand`、`screen_view` 的工具呈现，**不改变 `prepare()` 或 `understand().visual` 的公开图片返回契约**，来源插件不需迁移。三工具兼容增加 `question?:string`（最多1000字符），只用于本次观察；后端选择不接受工具参数覆盖。main 仍注册 `registerMultimodal` 并发送真实图片；ollama 注册 `registerTransient`，只交付文字及时间／裁剪元数据，不含图片字节、data URL 或图片内容块。任何失败不自动回退 main。联合视听的本地画面理解失败时仍可交付成功的声音结果，status 为 partial；无成功项目则 failed。
+
+本机 Ollama 适配只接受回环 HTTP 连接（根路径或 `/v1`），拒绝代理、地址凭据、远端地址及重定向。先用固定 `/api/show` 检查 vision 能力及远端模型标记，再用 `/api/chat`、`stream:false` 发送当前图片与简短观察问题；不提供工具或聊天历史，不继承任意模型 parameters。失败不重试、不拉取模型、不启动 Ollama。超时受所选连接与本次调用共同限制，一次仅一个本地推理任务；取消和停用断开并等待本插件网络任务结束，不接管用户 Ollama 进程。
+
+输出注明是本地模型描述、主模型未见原图，包含实际覆盖信息与不确定性提示。描述预算耗尽时明确 `truncated:true`，工具回执 outcome 为 partial；回执只保留动作、后端与数量／范围，不含问题、描述、原图或连接凭据。文字仍可能包含图片上的敏感内容，也仍有主模型文本费用。普通最终回答及显式诊断遵循宿主规则；本插件自行发起的 Ollama HTTP 不在宿主模型诊断覆盖内。
+
+`status.localVision` 区分选择、配置存在与繁忙；configured 不代表连接或真实视觉能力已验收。`localDescriptionTools` 表示本地文字工具已注册；`mainModelViewing` 保留宿主原生图片接口支持含义，不因切成本地方式伪造支持。
 
 ## 视听理解输入和时间
 
@@ -86,9 +98,9 @@
 
 ## 主模型工具、回执和持久化
 
-`vision_status` 提供状态。具备公开 `ctx.tools.registerMultimodal` 时注册旧 `vision_view` 与新 `media_understand`；旧宿主不回退为含 base64 的普通 JSON 工具。模型参数没有 `sessionId`，会话固定为可信 `ToolSession.id`。来源插件通常只需提供引用，由本插件工具负责准备与呈现，调用便利不要求来源插件复制整个工具流程。
+`vision_status` 提供状态。默认由公开 `ctx.tools.registerMultimodal` 注册 `vision_view`、`media_understand` 和 `screen_view`；本地描述改用 `registerTransient`。缺少所选方式的公开接口时不回退为普通持久工具。模型参数没有 `sessionId`，会话固定为可信 `ToolSession.id`。来源插件通常只需提供引用，由本插件工具负责准备与呈现，调用便利不要求来源插件复制整个工具流程。
 
-图片转换为 `{type:'image',mimeType:'image/jpeg',data:Uint8Array,detail}`；声音作为附有来源、时间和限制的文字证据交给当前主模型，**没有原始音频块**。所有资料明确标为外部证据，不是指令或授权。视觉仍使用当前模型，不暗中另选视觉模型；`mainModelViewing:true` 只证明宿主 API 存在，不证明该模型实际支持图片。
+直接看图时图片转换为 `{type:'image',mimeType:'image/jpeg',data:Uint8Array,detail}`；本地描述时只提供描述及画面元数据。声音作为附有来源、时间和限制的文字证据交给当前主模型，**没有原始音频块**。所有资料明确标为外部证据，不是指令或授权。当前会话主模型不变，本地视觉模型由用户显式选择；`mainModelViewing:true` 只证明宿主 API 存在，不证明该模型实际支持图片。
 
 旧回执为 `prepare_visual_input`；新回执为 `prepare_audiovisual_input`，只记录动作、结果、类型、图片数量、范围及各声音任务后端/状态/错误码。没有原图、原声、引用、完整转写或描述；准备完成不证明模型已经理解或来源平台已经发送。
 

@@ -23,16 +23,23 @@ export const settingsPage = `<!doctype html><html lang="zh-CN"><meta charset="ut
 <div class="capability"><dt>环境声理解</dt><dd><span id="soundState">检查中</span><small>可选云端能力，用于描述环境中的声音。</small></dd></div>
 </dl></section></div></section>
 <form id="settings">
-<details class="panel" id="visualSettings" open><summary>图片与视频画面<span class="pill">当前主模型理解</span></summary><div class="panel-body">
-<p class="hint panel-note">调整交给当前主模型的画面，不另选视觉模型。具体查看任务指定的画质和布局优先于这里的默认设置。</p>
+<details class="panel" id="visualSettings" open><summary>画面理解与处理<span class="pill" id="visualModeBadge">主模型直接看</span></summary><div class="panel-body">
+<div class="section"><h2>画面理解方式</h2><p class="hint">图片、视频与看屏共用这一选择。</p>
+<label class="row">理解方式<select name="visualUnderstandingBackend"><option value="main">主模型直接看</option><option value="ollama">本地 Ollama 描述</option></select></label><p class="field-help" id="visualUnderstandingHelp"></p>
+<div id="localVisionOptions" hidden><label class="row">本地看图模型连接<select name="localVisionModelId"><option value="">尚未选择</option></select></label>
+<p class="field-help">在宿主模型服务中添加 chat 或 custom 类型、OpenAI 兼容协议的本机 Ollama 连接，地址为 http://127.0.0.1:11434/v1，再在此选择配置。列表中的名称不代表模型已支持看图。</p>
+<p class="hint">需先自行安装 Ollama，并拉取支持视觉的本地模型。本插件不自动下载模型或启动 Ollama，不支持 Ollama 云模型或代理。保存设置不会测试连接。</p>
+<p class="warning" id="localVisionWarning" hidden>还没有选择本地看图模型，本地画面描述暂时无法使用。</p></div>
+<p class="technical current-settings" id="localVisionCurrent">正在读取当前画面理解方式。</p></div>
+<div class="section"><h2>画面准备</h2><p class="hint">调整用于理解的画面。具体查看任务指定的画质和布局优先于这里的默认设置。</p>
 <label class="row">默认画质<select name="visualDetail"><option value="auto">自动 · 按查看任务选择</option><option value="overview">概览 · 减少画面大小</option><option value="detail">细节 · 保留更多细节</option></select></label><p class="field-help" id="visualDetailHelp"></p>
 <label class="row">多帧布局<select name="visualLayout"><option value="frames">独立画面</option><option value="sheet">拼图概览</option></select></label><p class="field-help" id="visualLayoutHelp"></p>
 <label class="row">观察重点<select name="visualFocus"><option value="whole">全景优先</option><option value="auto">全景 + 自动变化细节</option></select></label><p class="field-help" id="visualFocusHelp"></p>
 <p class="technical current-settings" id="visualCurrent">正在读取当前画面处理设置。</p>
-</div></details>
+</div></div></details>
 <details class="panel" id="screenSettings"><summary>按需看屏<span class="pill" id="screenBadge">默认关闭</span></summary><div class="panel-body">
-<p class="hint panel-note">开启并重载后，AI 可以按需看当前画面，或观察接下来的一段时间。未调用时不采集，不在后台常驻监听。采集画面会交给当前主模型，模型本身须支持图片。</p>
-<p class="hint">若当前主模型使用云端服务，截图会发送给该模型提供商。本插件不落盘保存看屏截图；普通最终回答及显式开启的诊断输出（可能包含截图等模型输入）仍按宿主规则保留。</p>
+<p class="hint panel-note">开启并重载后，AI 可以按需看当前画面，或观察接下来的一段时间。未调用时不采集，不在后台常驻监听。截图按上面的画面理解方式处理：主模型直接看，或由本地 Ollama 描述后仅把文字交给主模型。</p>
+<p class="hint">若主模型在云端，直接看图模式会发送截图，本地描述模式只发送描述文字。本插件不落盘保存看屏截图；普通最终回答及显式开启的宿主诊断输出仍按宿主规则保留，直接看图时诊断可能包含截图等模型输入。</p>
 <p class="hint">看屏使用画质与高级采样设置；多帧布局和自动变化细节只用于已有图片、动画或视频。</p>
 <label class="row">允许按需看屏<select name="screenEnabled"><option value="false">关闭</option><option value="true">开启</option></select></label>
 <div id="screenOptions" hidden><label class="row">默认采集目标<select name="screenTarget"><option value="window">采集开始时的前台窗口</option><option value="screen">主屏幕</option></select></label><p class="field-help" id="screenTargetHelp"></p>
@@ -56,23 +63,29 @@ export const settingsPage = `<!doctype html><html lang="zh-CN"><meta charset="ut
 <details class="panel" id="advanced"><summary>高级设置<span class="pill">通常无需修改</span></summary><div class="panel-body"><div class="section"><h2>画面采样</h2>
 <label class="row">最多选取画面数<input name="visualMaxFrames" type="number" min="2" max="8" step="1" required></label><p class="field-help">每段最多选取 2–8 帧，再按所选布局提供；实际画面更少时不会补足。</p>
 <label class="row">采样密度<select name="visualSampleFps"><option value="1">每秒 1 次</option><option value="2">每秒 2 次（默认）</option><option value="4">每秒 4 次</option><option value="6">每秒 6 次</option></select></label><p class="field-help">提高密度可发现更短的变化，也会增加本机处理量；不等于把所有采样画面发给模型，仍可能遗漏快速动作。</p>
+</div><div class="section" id="localVisionAdvanced" hidden><h2>本地画面描述</h2><label class="row">描述长度上限（tokens）<input name="localVisionMaxTokens" type="number" min="128" max="1024" step="1" required></label><p class="field-help">默认 512，可设 128–1024。限制本地模型生成的描述长度；较短可能遗漏细节，较长会增加处理量与主模型收到的文字。</p>
 </div><div class="section"><h2>临时媒体</h2><p class="hint">控制来源图片与音视频临时文件的保留时间和占用，不影响聊天记忆。媒体按会话隔离，过期或停用后清理。看屏截图不进入此缓存，本插件不落盘保存截图。</p>
 <label class="row">引用有效期（秒）<input name="ttlSeconds" type="number" min="30" max="7200" required></label><p class="field-help">1800 秒为 30 分钟。过期后继续查看，需要重新取得媒体。</p>
 <label class="row">单文件上限（MiB）<input name="maxMediaMiB" type="number" min="1" max="64" required></label><label class="row">总容量上限（MiB）<input name="maxTotalMiB" type="number" min="1" max="512" required></label><p class="field-help">总容量统计所有会话的临时媒体，不能小于单文件上限。</p></div><div class="technical"><p id="decoder"></p><p id="usage"></p></div></div></details>
 <div class="save-area"><div class="actions"><button id="save" class="primary" type="submit" disabled>保存设置</button><span id="saveState" class="pill">正在读取</span><a id="manage" class="link-button" href="/#plugins" target="_top" hidden>前往插件管理重载</a></div><p id="notice" class="muted" role="status">保存配置后，重载插件才会生效。</p><p id="saveError" role="alert" hidden></p></div>
 </form>
-<p class="footnote">已有音视频默认每次看听 30 秒，单次最多 60 秒，可继续分段处理。当前主模型收到画面与声音文字资料；选择本地识别时，转写文字仍会交给主模型。</p>
-<details class="panel"><summary>理解范围与使用说明</summary><div class="panel-body"><p class="hint">网页与平台媒体仍由来源插件取得；这页显示处理能力，不代表这些来源已完成接入。按需看屏只采集当前可见画面，窗口内容会受遮挡，不能取得被遮挡或最小化窗口的隐藏内容。歌词识别可能受伴奏影响，本地音乐分析不等于完整乐谱或确定的段落标签。</p><p class="hint">具备多模态接口的宿主将画面交给当前主模型；旧宿主显示主模型查看暂不可用。所选主模型仍须支持图片，页面不会调用模型测试连接。主模型没有直接收到原音频。临时媒体不作为长期收藏，普通聊天最终回答仍按宿主规则保存。</p></div></details>
+<p class="footnote">已有音视频默认每次看听 30 秒，单次最多 60 秒，可继续分段处理。主模型收到直接图片或本地生成的画面描述，并接收所选声音任务的文字资料；本地处理后的文字仍会交给主模型。</p>
+<details class="panel"><summary>理解范围与使用说明</summary><div class="panel-body"><p class="hint">网页与平台媒体仍由来源插件取得；这页显示处理能力，不代表这些来源已完成接入。按需看屏只采集当前可见画面，窗口内容会受遮挡，不能取得被遮挡或最小化窗口的隐藏内容。歌词识别可能受伴奏影响，本地音乐分析不等于完整乐谱或确定的段落标签。</p><p class="hint">主模型直接看图需要宿主多模态接口，所选主模型须支持图片；旧宿主显示主模型查看暂不可用。本地 Ollama 描述需要宿主临时文字工具接口，主模型只收到文字，不要求主模型支持图片。页面不会调用模型测试连接，失败不会自动切换理解方式。主模型没有直接收到原音频。临时媒体不作为长期收藏，普通聊天最终回答仍按宿主规则保存。</p></div></details>
 <script type="module">
 const $=selector=>document.querySelector(selector),form=$('#settings'),save=$('#save'),prepare=$('#prepare');
 const text=(selector,value)=>{$(selector).textContent=value;},show=(selector,value)=>{$(selector).hidden=!value;},field=name=>form.elements.namedItem(name);
 const mib=n=>((Number(n)||0)/1048576).toFixed(1)+' MiB';
-let revision,latest,savedSnapshot='',savedProxy='',initialized=false,loading=false,saving=false,preparing=false,online=false,resourceAttention=false,prepareMessage='';
-function readConfig(){const values=Object.fromEntries(new FormData(form));return {ttlSeconds:Number(values.ttlSeconds),maxMediaMiB:Number(values.maxMediaMiB),maxTotalMiB:Number(values.maxTotalMiB),visual:{detail:values.visualDetail,layout:values.visualLayout,focus:values.visualFocus,maxFrames:Number(values.visualMaxFrames),sampleFps:Number(values.visualSampleFps)},screen:{enabled:values.screenEnabled==='true',target:values.screenTarget,seconds:Number(values.screenSeconds)},audio:{speechBackend:values.speechBackend,speechModelId:values.speechModelId,understandingModelId:values.understandingModelId,musicBackend:values.musicBackend,resourceProxyUrl:values.resourceProxyUrl}};}
+let revision,latest,savedSnapshot='',savedProxy='',savedLocalVisionMaxTokens=512,initialized=false,loading=false,saving=false,preparing=false,online=false,resourceAttention=false,prepareMessage='';
+function validLocalVisionBudget(value){const budget=Number(value);return Number.isInteger(budget)&&budget>=128&&budget<=1024;}
+function readConfig(){const values=Object.fromEntries(new FormData(form));return {ttlSeconds:Number(values.ttlSeconds),maxMediaMiB:Number(values.maxMediaMiB),maxTotalMiB:Number(values.maxTotalMiB),visual:{detail:values.visualDetail,layout:values.visualLayout,focus:values.visualFocus,maxFrames:Number(values.visualMaxFrames),sampleFps:Number(values.visualSampleFps)},visualUnderstanding:{backend:values.visualUnderstandingBackend,modelId:values.localVisionModelId,maxTokens:Number(values.localVisionMaxTokens)},screen:{enabled:values.screenEnabled==='true',target:values.screenTarget,seconds:Number(values.screenSeconds)},audio:{speechBackend:values.speechBackend,speechModelId:values.speechModelId,understandingModelId:values.understandingModelId,musicBackend:values.musicBackend,resourceProxyUrl:values.resourceProxyUrl}};}
 function dirty(){return initialized&&JSON.stringify(readConfig())!==savedSnapshot;}
+function runtimeVisual(s){const local=s.localVision?.backend==='ollama';return {local,capable:local?!!s.localDescriptionTools:!!s.mainModelViewing,configured:!local||!!s.localVision?.configured,busy:local&&!!s.localVision?.busy};}
 function loadForm(data){
  const choices=data.models||[];
- for(const name of ['speechModelId','understandingModelId']){const select=field(name),selected=(data.config.audio||{})[name]||'';select.replaceChildren(new Option('尚未选择',''));for(const model of choices.filter(m=>name==='speechModelId'?m.type==='stt':m.type==='chat'||m.type==='custom'))select.add(new Option(model.name,model.id));if(selected&&!Array.from(select.options).some(o=>o.value===selected))select.add(new Option('原配置不可用 · '+selected,selected));}
+ const understanding={backend:'main',modelId:'',maxTokens:512,...data.localVisionDefaults,...(data.config.visualUnderstanding||{})};
+ for(const name of ['speechModelId','understandingModelId','localVisionModelId']){const select=field(name),selected=name==='localVisionModelId'?understanding.modelId:(data.config.audio||{})[name]||'';select.replaceChildren(new Option('尚未选择',''));for(const model of choices.filter(m=>name==='speechModelId'?m.type==='stt':m.type==='chat'||m.type==='custom'))select.add(new Option(model.name,model.id));if(selected&&!Array.from(select.options).some(o=>o.value===selected))select.add(new Option('原配置不可用 · '+selected,selected));}
+ savedLocalVisionMaxTokens=validLocalVisionBudget(understanding.maxTokens)?Number(understanding.maxTokens):512;
+ field('visualUnderstandingBackend').value=understanding.backend;field('localVisionModelId').value=understanding.modelId;field('localVisionMaxTokens').value=savedLocalVisionMaxTokens;
  const values={...data.config,...data.audioDefaults,...(data.config.audio||{})};for(const [name,value]of Object.entries(values)){const input=field(name);if(input)input.value=value;}
  const visual={...data.visualDefaults,...(data.config.visual||{})},screen={...data.screenDefaults,...(data.config.screen||{})};
  for(const [name,value]of Object.entries(visual)){const input=field('visual'+name[0].toUpperCase()+name.slice(1));if(input)input.value=value;}
@@ -81,11 +94,15 @@ function loadForm(data){
 }
 function updateForm(){
  const visualDetail=field('visualDetail').value,visualFocus=field('visualFocus').value,screenEnabled=field('screenEnabled').value==='true',screen=latest?.status.screen;
+ const localDraft=field('visualUnderstandingBackend').value==='ollama',activeVisual=runtimeVisual(latest?.status||{});
+ if(!localDraft&&!validLocalVisionBudget(field('localVisionMaxTokens').value))field('localVisionMaxTokens').value=savedLocalVisionMaxTokens;
+ show('#localVisionOptions',localDraft);show('#localVisionAdvanced',localDraft);show('#localVisionWarning',localDraft&&!field('localVisionModelId').value);
+ text('#visualUnderstandingHelp',localDraft?'原图交给所选本机 Ollama，主模型只收到描述文字，避免本次原图的主模型图片用量；主模型仍处理文字，可能产生文本费用。小模型可能漏细节，失败不会自动切回主模型看图。':'把准备好的图片直接交给当前主模型，模型须支持图片；若使用云端模型，会产生相应图片用量。');
  text('#visualDetailHelp',visualDetail==='detail'?'更适合小字与局部细节；画面与模型用量可能增加。':visualDetail==='overview'?'更适合先了解整体内容；小字或复杂细节可再指定高清查看。':'按查看任务选择概览或细节；模型仍可在调用时明确指定画质。');
  text('#visualLayoutHelp',field('visualLayout').value==='sheet'?'将多帧排成一张拼图，便于概览；文字与细节可能缩小。':'每帧独立提供，保留各自的时间位置，便于逐帧理解。');
  text('#visualFocusHelp',visualFocus==='auto'?'保留全景，并根据画面变化补充细节区域；自动选择可能遗漏需要关注的内容。':'优先保留完整画面；需要看清局部时，可由模型明确指定裁剪区域。');
  show('#screenOptions',screenEnabled);text('#screenTargetHelp',field('screenTarget').value==='window'?'以采集开始时的前台窗口为目标，只能看到当前可见部分，内容会受遮挡。':'采集主屏幕当前可见的内容，包括其上的窗口。');
- const screenWarning=screenEnabled&&screen?.supported===false?'当前平台不支持看屏；保存开关不会使该能力可用。':screenEnabled&&!latest?.status.mainModelViewing?'当前宿主尚不支持主模型查看图片；开启看屏仍需对应的多模态接口。':'';
+ const screenWarning=screenEnabled&&screen?.supported===false?'当前平台不支持看屏；保存开关不会使该能力可用。':screenEnabled&&!activeVisual.capable?(activeVisual.local?'当前运行的本地描述方式需要宿主临时文字工具接口。':'当前运行的主模型看图方式需要宿主多模态接口。'):screenEnabled&&!activeVisual.configured?'当前运行的本地描述方式尚未选择模型。':'';
  show('#screenWarning',!!screenWarning);text('#screenWarning',screenWarning);
  const cloudSpeech=field('speechBackend').value==='cloud',cloudMusic=field('musicBackend').value==='cloud';
  show('#speechCloud',cloudSpeech);show('#speechWarning',cloudSpeech&&!field('speechModelId').value);show('#musicWarning',cloudMusic&&!field('understandingModelId').value);
@@ -105,13 +122,15 @@ function updateForm(){
 function render(data){
  latest=data;online=true;if(!initialized)loadForm(data);
  const s=data.status,a=s.audio?.unavailable?undefined:s.audio,local=a?.local||{},decoderReady=!!s.decoder?.ready,busy=['checking','downloading','extracting','installing','verifying','preparing'].includes(local.phase);
- const localSpeech=a?.speechBackend==='local',screen=s.screen,visual=s.visual,imageReady=!!s.mediaPreparation&&!!s.mainModelViewing;
- text('#imageState',!s.mediaPreparation?'媒体处理暂不可用':s.mainModelViewing?'宿主图片接口已支持':'主模型查看暂不可用');
- text('#imageHint',s.mainModelViewing?'当前主模型仍须支持图片；此处未测试模型连接。':'媒体准备与主模型查看分开；需要宿主多模态接口。');
- text('#videoState',!s.mediaPreparation?'媒体处理暂不可用':!decoderReady?'解码组件未就绪':s.mainModelViewing?'画面采样已就绪':'可准备画面 · 等待宿主接口');
- const screenState=!screen?'看屏状态暂不可用':!screen.supported?'当前平台不支持':!screen.enabled?'未开启':screen.busy?'正在采集':!s.mediaPreparation?'媒体处理暂不可用':!s.mainModelViewing?'已开启 · 等待宿主接口':'已开启 · 按需采集';
+ const localSpeech=a?.speechBackend==='local',screen=s.screen,visual=s.visual,understanding=runtimeVisual(s),imageReady=!!s.mediaPreparation&&understanding.capable&&understanding.configured;
+ text('#imageState',!s.mediaPreparation?'媒体处理暂不可用':understanding.local?(!understanding.capable?'本地描述需宿主支持':!understanding.configured?'待选择本地看图模型':understanding.busy?'正在生成本地描述':'已选择本地模型 · 调用时检查'):s.mainModelViewing?'宿主图片接口已支持':'主模型查看暂不可用');
+ text('#imageHint',understanding.local?'主模型只收到描述文字；此处未测试本地连接或视觉能力。':s.mainModelViewing?'当前主模型仍须支持图片；此处未测试模型连接。':'媒体准备与主模型查看分开；需要宿主多模态接口。');
+ text('#videoState',!s.mediaPreparation?'媒体处理暂不可用':!decoderReady?'解码组件未就绪':!understanding.capable?'可准备画面 · 等待宿主接口':!understanding.configured?'可准备画面 · 待选择本地模型':'画面采样已就绪');
+ text('#visualModeBadge',understanding.local?'本地 Ollama 描述':'主模型直接看');
+ text('#localVisionCurrent',understanding.local?'当前运行：本地 Ollama 描述 · '+(!understanding.capable?'宿主临时文字工具暂不可用':!understanding.configured?'尚未选择模型':understanding.busy?'正在生成描述':'已选择模型，实际调用时检查连接与视觉能力')+'。原图不发送给主模型。':'当前运行：主模型直接看图。主模型须支持图片，此处未测试连接。');
+ const screenState=!screen?'看屏状态暂不可用':!screen.supported?'当前平台不支持':!screen.enabled?'未开启':screen.busy?'正在采集':!s.mediaPreparation?'媒体处理暂不可用':!understanding.capable?'已开启 · 等待宿主接口':!understanding.configured?'已开启 · 待选择本地模型':'已开启 · 按需采集';
  text('#screenState',screenState);text('#screenBadge',!screen?'暂不可用':!screen.supported?'平台不支持':screen.busy?'采集中':screen.enabled?'已开启':'未开启');$('#screenBadge').dataset.tone=screen?.busy?'warn':screen?.enabled&&screen.supported?'ready':'';
- text('#screenHint',screen?.busy?'当前调用结束后停止采集，不持续监听。':'没有调用时不采集；由当前主模型看图。');
+ text('#screenHint',screen?.busy?'当前调用结束后停止采集，不持续监听。':understanding.local?'没有调用时不采集；本地描述后仅交给主模型文字。':'没有调用时不采集；由当前主模型看图。');
  text('#screenCurrent','当前运行：'+screenState+'。设置变更需保存并重载后生效。');
  text('#visualCurrent',visual?'当前运行：'+({auto:'自动画质',overview:'概览画质',detail:'细节画质'}[visual.detail]||'未识别画质')+' · '+(visual.layout==='sheet'?'拼图概览':'独立画面')+' · '+(visual.focus==='auto'?'全景 + 自动变化细节':'全景优先')+' · 最多 '+visual.maxFrames+' 帧 · 每秒 '+visual.sampleFps+' 次采样。':'当前运行的画面设置暂不可用。');
  text('#speechState',!a?'暂不可用':!decoderReady?'解码组件未就绪':localSpeech?(local.ready?'已就绪 · 本地识别':busy?'准备中 · 本地识别':'尚未就绪 · 本地识别'):(a.speechCloudConfigured?'已选择云端模型':'待选择云端转写模型'));
@@ -119,8 +138,8 @@ function render(data){
  text('#musicState',!a||!decoderReady?'暂不可用':a.musicBackend==='local'?'可用 · 本地基础估计':a.understandingCloudConfigured?'已选择云端模型':'待选择云端理解模型');
  text('#soundState',!a||!decoderReady?'暂不可用':a.understandingCloudConfigured?'已选择云端模型 · 调用时检查兼容性':'未配置 · 可选云端能力');
  $('#hero').dataset.tone=imageReady&&decoderReady?'ready':'warn';
- text('#state',!s.mediaPreparation?'媒体处理暂不可用':!s.mainModelViewing?'媒体准备可用，主模型查看需宿主支持':!decoderReady?'图片准备可用，音视频解码需检查':'画面准备已就绪，声音能力按需选择');
- text('#detail',!s.mediaPreparation?(s.error||'请查看下方运行详情。'):data.pendingReload?'设置已保存，重载后生效。下方显示当前正在运行的能力。':!s.mainModelViewing?'主模型查看等待宿主多模态接口；各项声音处理能力独立显示。':'画面由当前主模型理解，模型本身须支持图片。语音资源未准备不影响图片查看；'+(screen?.enabled?'看屏仅在调用时采集。':'看屏需另外开启。'));
+ text('#state',!s.mediaPreparation?'媒体处理暂不可用':!understanding.capable?(understanding.local?'本地画面描述需宿主文字工具支持':'媒体准备可用，主模型查看需宿主支持'):!understanding.configured?'本地画面描述尚未选择模型':!decoderReady?'图片准备可用，音视频解码需检查':understanding.local?'已选择本地画面描述，调用时检查兼容性':'画面准备已就绪，声音能力按需选择');
+ text('#detail',!s.mediaPreparation?(s.error||'请查看下方运行详情。'):data.pendingReload?'设置已保存，重载后生效。下方显示当前正在运行的能力。':understanding.local?'原图仅交给所选本机 Ollama；主模型收到描述文字，仍可能产生文本费用。小模型可能漏细节；失败不自动回退。':!s.mainModelViewing?'主模型查看等待宿主多模态接口；各项声音处理能力独立显示。':'画面由当前主模型理解，模型本身须支持图片。语音资源未准备不影响图片查看；'+(screen?.enabled?'看屏仅在调用时采集。':'看屏需另外开启。'));
  text('#resourceBadge',!a?'暂不可用':local.ready?'已准备':busy?'准备中':local.supported===false?'当前平台不支持':local.phase==='error'?'需要处理':'尚未准备');$('#resourceBadge').dataset.tone=local.ready?'ready':(localSpeech||local.error)?'warn':'';
  text('#localState',!a?'声音模块暂不可用':local.ready?'本地语音资源已就绪':busy?'正在准备本地语音':local.supported===false?'当前平台不支持本地语音':'尚未准备本地语音资源');
  text('#localHelp',!a?'请检查下方错误信息；图片处理能力仍按实际运行状态提供。':local.ready?'无需重复下载。她可以在需要时自主调用本地识别。':busy?'正在下载、校验并安装组件，请留意下方进度。':local.supported===false?'本地语音当前支持 Windows x64；可按需配置云端语音识别。':'点击按钮才会下载组件和模型；音乐基础分析不需要这些资源。');

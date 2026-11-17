@@ -127,6 +127,9 @@ test('settings initialize legacy config without collection and keep visual readi
   assert.equal(h.field('visualSampleFps').value, '2'); assert.equal(h.field('screenEnabled').value, 'false');
   assert.equal(h.field('screenTarget').value, 'window'); assert.equal(h.field('screenSeconds').value, '10');
   assert.equal(h.field('speechBackend').value, 'local'); assert.equal(h.field('speechModelId').value, ''); assert.equal(h.field('resourceProxyUrl').value, '');
+  assert.equal(h.field('visualUnderstandingBackend').value, 'main'); assert.equal(h.field('localVisionModelId').value, '');
+  assert.equal(h.field('localVisionMaxTokens').value, '512'); assert.equal(h.element('localVisionOptions').hidden, true);
+  assert.equal(h.element('localVisionAdvanced').hidden, true, 'old state without new defaults keeps main-model mode');
   assert.equal(h.element('screenOptions').hidden, true); assert.equal(h.element('save').disabled, true);
   assert.match(h.element('state').textContent, /画面准备已就绪/);
   assert.match(h.element('imageState').textContent, /接口已支持/);
@@ -216,4 +219,134 @@ test('resource preparation remains explicit and respects proxy drafts, progress,
   assert.equal(h.element('prepare').disabled, true); assert.equal(h.element('downloadArea').hidden, true);
   assert.equal(h.element('prepareNotice').textContent, ''); assert.match(h.element('speechState').textContent, /已就绪/);
   assert.ok(h.requests.every(r => ['/plugins/vision/state', '/plugins/vision/config', '/plugins/vision/audio/prepare'].includes(r.path)));
+});
+
+function localVisionState(): any {
+  const state = fixtureState();
+  state.localVisionDefaults = { backend: 'main', modelId: '', maxTokens: 512 };
+  state.config.visualUnderstanding = { backend: 'ollama', modelId: 'local-vision', maxTokens: 512 };
+  state.models.push({ id: 'local-vision', name: 'Synthetic local vision', type: 'chat' });
+  state.status.localVision = { backend: 'ollama', configured: true, busy: false };
+  state.status.localDescriptionTools = true;
+  return state;
+}
+
+test('local description uses transient text capability without requiring main-model images or claiming the connection was tested', async t => {
+  const initial = localVisionState();
+  initial.status.mainModelViewing = false; initial.status.screen.enabled = true;
+  initial.config.screen = { ...initial.screenDefaults, enabled: true };
+  initial.status.localVision.available = false;
+  const h = await page(initial); t.after(() => h.close());
+  assert.equal(h.element('localVisionOptions').hidden, false); assert.equal(h.element('localVisionAdvanced').hidden, false);
+  assert.equal(h.element('localVisionWarning').hidden, true); assert.equal(h.element('screenWarning').hidden, true);
+  assert.match(h.element('imageState').textContent, /已选择本地模型.*调用时检查/);
+  assert.match(h.element('imageHint').textContent, /只收到描述文字.*未测试/);
+  assert.doesNotMatch(h.element('imageHint').textContent, /主模型.*须支持图片/);
+  assert.match(h.element('screenState').textContent, /已开启.*按需采集/);
+  assert.match(h.element('localVisionCurrent').textContent, /原图不发送给主模型/);
+  assert.match(h.element('visualUnderstandingHelp').textContent, /文本费用.*漏细节.*不会自动切回/);
+  assert.match(h.element('state').textContent, /已选择本地画面描述.*检查兼容性/);
+  assert.doesNotMatch(h.element('state').textContent, /已就绪|已通过/);
+  h.state.status.localVision.busy = true; await h.poll();
+  assert.match(h.element('imageState').textContent, /正在生成本地描述/);
+  assert.deepEqual(h.requests.map(r => r.path), ['/plugins/vision/state', '/plugins/vision/state']);
+});
+
+test('switching understanding backends retains hidden model IDs and all sound, visual and screen configuration until reload', async t => {
+  const initial = localVisionState();
+  initial.config.visualUnderstanding = { backend: 'main', modelId: 'removed-local-model', maxTokens: 768 };
+  initial.config.visual = { ...initial.visualDefaults, layout: 'sheet', focus: 'auto', maxFrames: 4, sampleFps: 6 };
+  initial.config.screen = { enabled: false, target: 'screen', seconds: 25 };
+  initial.status.localVision.backend = 'main';
+  initial.models.push({ id: 'embedding-only', name: 'Synthetic embedding', type: 'embedding' });
+  const h = await page(initial); t.after(() => h.close());
+  assert.equal(h.element('localVisionOptions').hidden, true);
+  assert.ok(h.field('localVisionModelId').options.some(option => option.value === 'removed-local-model'));
+  assert.ok(h.field('localVisionModelId').options.some(option => option.value === 'local-vision'));
+  assert.ok(h.field('localVisionModelId').options.some(option => option.value === 'saved-omni'));
+  assert.ok(!h.field('localVisionModelId').options.some(option => ['saved-stt', 'embedding-only'].includes(option.value)));
+  await h.edit('ttlSeconds', '1200'); await h.submit();
+  assert.deepEqual(h.requests.find(r => r.path.endsWith('/config'))!.body.config.visualUnderstanding, initial.config.visualUnderstanding);
+  await h.edit('visualUnderstandingBackend', 'ollama'); await h.edit('localVisionModelId', 'local-vision');
+  await h.edit('localVisionMaxTokens', '1024');
+  assert.equal(h.element('localVisionOptions').hidden, false);
+  assert.match(h.element('visualModeBadge').textContent, /主模型直接看/, 'draft is not running configuration');
+  await h.submit();
+  const posted = h.requests.filter(r => r.path.endsWith('/config')).at(-1)!.body.config;
+  assert.deepEqual(posted.visualUnderstanding, { backend: 'ollama', modelId: 'local-vision', maxTokens: 1024 });
+  assert.deepEqual(posted.audio, initial.config.audio); assert.deepEqual(posted.visual, initial.config.visual); assert.deepEqual(posted.screen, initial.config.screen);
+  assert.match(h.element('saveState').textContent, /等待重载/); assert.match(h.element('visualModeBadge').textContent, /主模型直接看/);
+  h.state.pendingReload = false; h.state.status.localVision.backend = 'ollama'; h.state.status.mainModelViewing = false;
+  await h.poll(); assert.match(h.element('visualModeBadge').textContent, /本地 Ollama 描述/);
+  await h.edit('visualUnderstandingBackend', 'main'); assert.equal(h.element('localVisionOptions').hidden, true);
+  assert.equal(h.element('localVisionAdvanced').hidden, true); await h.submit();
+  const last = h.requests.filter(r => r.path.endsWith('/config')).at(-1)!.body.config;
+  assert.deepEqual(last.visualUnderstanding, { backend: 'main', modelId: 'local-vision', maxTokens: 1024 });
+  assert.deepEqual(last.audio, initial.config.audio); assert.deepEqual(last.visual, initial.config.visual); assert.deepEqual(last.screen, initial.config.screen);
+  assert.match(h.element('visualModeBadge').textContent, /本地 Ollama 描述/, 'saved main mode still waits for reload');
+});
+
+test('local-mode drafts survive polling and a stale-revision conflict without changing runtime state', async t => {
+  const initial = localVisionState(); initial.status.mainModelViewing = false;
+  const h = await page(initial); t.after(() => h.close());
+  await h.edit('localVisionModelId', 'saved-omni'); await h.edit('localVisionMaxTokens', '128');
+  h.state.revision = 'concurrent-local-change';
+  h.state.config.visualUnderstanding = { backend: 'main', modelId: 'different-config', maxTokens: 768 };
+  await h.poll();
+  assert.equal(h.field('visualUnderstandingBackend').value, 'ollama');
+  assert.equal(h.field('localVisionModelId').value, 'saved-omni'); assert.equal(h.field('localVisionMaxTokens').value, '128');
+  await h.submit();
+  assert.equal(h.requests.find(r => r.path.endsWith('/config'))!.body.revision, 'initial-revision');
+  assert.match(h.element('saveError').textContent, /设置已被修改/);
+  assert.equal(h.field('localVisionModelId').value, 'saved-omni'); assert.equal(h.field('localVisionMaxTokens').value, '128');
+  assert.equal(h.field('localVisionModelId').disabled, false); assert.match(h.element('visualModeBadge').textContent, /本地 Ollama 描述/);
+});
+
+test('switching to main restores only invalid hidden local budgets and keeps model choices in submitted config', async t => {
+  for (const savedBudget of [768, undefined]) {
+    const initial = savedBudget === undefined ? fixtureState() : localVisionState();
+    if (savedBudget !== undefined) initial.config.visualUnderstanding.maxTokens = savedBudget;
+    const h = await page(initial); t.after(() => h.close());
+    const expectedBudget = savedBudget ?? 512;
+    for (const invalidBudget of ['', '127', '1025', '128.5', 'not-a-number']) {
+      await h.edit('visualUnderstandingBackend', 'ollama');
+      await h.edit('localVisionModelId', 'saved-omni');
+      await h.edit('localVisionMaxTokens', invalidBudget);
+      assert.equal(h.field('localVisionMaxTokens').value, invalidBudget, 'visible invalid input remains editable');
+      await h.edit('visualUnderstandingBackend', 'main');
+      assert.equal(h.element('localVisionAdvanced').hidden, true);
+      assert.equal(h.field('localVisionMaxTokens').value, String(expectedBudget));
+      assert.equal(h.field('localVisionMaxTokens').disabled, false, 'hidden budget must remain in FormData');
+      assert.equal(h.field('localVisionModelId').value, 'saved-omni');
+      await h.submit();
+      const posted = h.requests.filter(r => r.path.endsWith('/config')).at(-1)!.body.config;
+      assert.deepEqual(posted.visualUnderstanding, { backend: 'main', modelId: 'saved-omni', maxTokens: expectedBudget });
+      assert.deepEqual(posted.audio, initial.config.audio);
+    }
+    await h.edit('visualUnderstandingBackend', 'ollama');
+    await h.edit('localVisionMaxTokens', '256');
+    await h.edit('visualUnderstandingBackend', 'main');
+    assert.equal(h.field('localVisionMaxTokens').value, '256', 'valid unsaved budget survives hiding');
+    await h.submit();
+    assert.deepEqual(h.requests.filter(r => r.path.endsWith('/config')).at(-1)!.body.config.visualUnderstanding,
+      { backend: 'main', modelId: 'saved-omni', maxTokens: 256 });
+  }
+});
+
+test('missing local selection or transient support never falls back to the available main-model image interface', async t => {
+  const initial = localVisionState(); initial.config.visualUnderstanding.modelId = '';
+  initial.config.screen = { ...initial.screenDefaults, enabled: true };
+  initial.status.localVision = { backend: 'ollama', configured: false, busy: false, available: true };
+  initial.status.screen.enabled = true;
+  const h = await page(initial); t.after(() => h.close());
+  assert.equal(h.element('localVisionWarning').hidden, false);
+  assert.match(h.element('imageState').textContent, /待选择本地看图模型/);
+  assert.match(h.element('screenState').textContent, /待选择本地模型/);
+  assert.match(h.element('screenWarning').textContent, /尚未选择模型/);
+  assert.match(h.element('state').textContent, /尚未选择模型/);
+  h.state.status.localVision.configured = true; h.state.status.localDescriptionTools = false; await h.poll();
+  assert.match(h.element('imageState').textContent, /本地描述需宿主支持/);
+  assert.match(h.element('screenWarning').textContent, /临时文字工具接口/);
+  assert.match(h.element('state').textContent, /需宿主文字工具支持/);
+  assert.ok(h.requests.every(r => r.path === '/plugins/vision/state'), 'rendering never starts a local model or automatic fallback');
 });
