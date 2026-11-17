@@ -5,7 +5,7 @@
 import { audioDefaults, type AudioSettings, type AudioTask, type AudioOutcome } from './audio-types.ts';
 import { screenSettingsOf, type ScreenSettings } from './screen.ts';
 import { localVisionSettingsOf, type LocalVisionSettings } from './local-vision.ts';
-export const VERSION = '0.4.1';
+export const VERSION = '0.4.2';
 export const MiB = 1024 * 1024;
 export const MAX_PIXELS = 40_000_000;
 export const MAX_OUTPUT = 8 * MiB;

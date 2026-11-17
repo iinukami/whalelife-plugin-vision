@@ -1,5 +1,5 @@
 id: vision
 name: 视听理解
-version: 0.4.1
+version: 0.4.2
 description: 图片、视频、音频与按需看屏；支持主模型看图或本机 Ollama 描述
 apiVersion: "1.0.0"

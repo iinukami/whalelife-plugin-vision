@@ -4,6 +4,7 @@
  */
 import type { Context, ToolContentPart } from 'whalelife';
 import type { Vision } from './runtime.ts';
+import type { VisualToolScope } from './visual-tool-scope.ts';
 import { audioTasks } from './audio-types.ts';
 import { object, identity, safeError, type UnderstandInput, type UnderstoodMedia } from './types.ts';
 import { visualContent } from './view-tool.ts';
@@ -17,7 +18,7 @@ export function understandingContent(result: UnderstoodMedia, presented?: ToolCo
   if (result.visual) content.push(...(presented ?? visualContent(result.visual)));
   return content;
 }
-export function registerUnderstandTool(ctx: Context, app: Vision): boolean {
+export function registerUnderstandTool(ctx: Context, app: Vision, scope?: VisualToolScope): boolean {
   return registerVisualTool<Omit<UnderstandInput, 'sessionId'> & { question?: string }>(ctx, app, {
     name: 'media_understand', danger: 'safe',
     description: '理解当前会话的图片、视频或音频引用。视频一次取得同一时间段的画面与语音，默认从开头看听30秒、单段最多60秒，按任务自主继续或补听。默认只转写 speech；需要环境声、音乐听感时选 sound（预设云端），音乐专项可选 rhythm/melody/chords/structure，不必每次全跑。visual=false 可只听；audio=[] 可只看。图片默认只看。只接收 mediaRef，不传URL、文件路径、base64、后端或会话ID。后端由用户按用途配置，不自动替换；partial/failed必须说明实际缺失部分。单帧 atSeconds 用于补看，不与听声音同用。',
@@ -65,5 +66,5 @@ export function registerUnderstandTool(ctx: Context, app: Vision): boolean {
           receipt: { action: 'prepare_audiovisual_input', outcome: 'failed', code: safe.code } };
       }
     },
-  });
+  }, scope);
 }

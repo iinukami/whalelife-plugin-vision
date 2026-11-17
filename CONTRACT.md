@@ -115,6 +115,14 @@
 - `media_unavailable` 统一覆盖过期、释放、停用及跨会话访问；`busy`/`audio_busy`/`quota` 表示资源限制。输入、解码、模型连接、资源准备、推理和输出错误均用固定安全码区分。部分声音失败可保留画面或其他成功任务。
 - `prepare()` 与 `offerMedia()` 本身不调用模型；`understand()` 只按所选任务和后端运行，可能调用选定云端服务。没有收藏、平台发送或其他平台副作用。
 
+## 设置保存与应用
+
+设置页使用本插件鉴权 API，不依赖宿主私有管理接口。GET `/plugins/vision/state` 返回 `applySupported`、`applying`、`revision`、`appliedRevision`、`pendingReload` 及可选 `applyError`；保存版本与运行版本一致才表示已生效，不代表模型连接已通过真实推理验收。
+
+POST `/plugins/vision/config` 传 `{config, revision, apply:true}`，保存后在插件内部应用；省略 `apply` 保留旧客户端仅保存、等待应用/重载的行为。POST `/plugins/vision/apply` 传 `{revision}` 应用已保存配置。两者串行且在队列内检查版本冲突。成功返回 `saved:true, applied:true, reloadRequired:false, revision`；保存后应用失败返回 HTTP 400 与 `saved:true, applied:false, reloadRequired:true, revision, code, error`，配置保留，可修复后重试。
+
+实际应用先关闭入口、撤销三个视觉工具并取消、等待完整在途调用和资源下载，再清理旧临时媒体，创建新实例并按所选后端注册工具。此过程使旧媒体引用失效，保留已安装权重；新旧实例不会同时使用同一暂存目录。未变且已生效的配置不重建实例。应用期间服务返回 `settings_applying`；旧工具的迟到结果丢弃。保存完成后浏览器断开不会中断应用，宿主停用则阻止迟到注册。音频资源不可用仍按原行为单独报告，不阻断视觉初始化。
+
 ## 最小来源接入
 
 ```ts

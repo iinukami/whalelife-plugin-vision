@@ -4,6 +4,7 @@
  */
 import type { Context, ToolContentPart } from 'whalelife';
 import type { Vision } from './runtime.ts';
+import type { VisualToolScope } from './visual-tool-scope.ts';
 import { registerVisualTool, presentVisual, visualQuestion } from './visual-route.ts';
 import { object, identity, safeError, type PrepareInput, type PreparedMedia } from './types.ts';
 
@@ -19,7 +20,7 @@ export function visualContent(result: PreparedMedia): ToolContentPart[] {
     ...result.images.map(i => ({ type: 'image' as const, mimeType: i.mime, data: Buffer.from(i.base64, 'base64'),
       detail: result.detail === 'detail' || i.frames.some(frame => frame.role === 'focus') ? 'high' as const : 'auto' as const }))];
 }
-export function registerViewTool(ctx: Context, app: Vision): boolean {
+export function registerViewTool(ctx: Context, app: Vision, scope?: VisualToolScope): boolean {
   return registerVisualTool<ViewInput>(ctx, app, {
     name: 'vision_view', danger: 'safe',
     description: '直接查看其他插件交给当前会话的图片或视频引用。画面按用户设置由主模型直接查看或本地 Ollama 生成文字描述。只传 mediaRef，不传 URL、文件路径、base64 或会话 ID。视频默认查看前30秒，可用 fromSeconds/toSeconds 分段（最多60秒），或 atSeconds 指定时刻补看；不能把采样说成看过每帧，当前不含音频。detail=detail 可看高清细节，crop 可指定0–1比例区域，layout=sheet 可查看带编号和时间的拼图。引用过期请让来源插件重新取得媒体。',
@@ -59,5 +60,5 @@ export function registerViewTool(ctx: Context, app: Vision): boolean {
           receipt: { action: 'prepare_visual_input', outcome: 'failed', code: error.code } };
       }
     },
-  });
+  }, scope);
 }

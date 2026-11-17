@@ -162,13 +162,18 @@ export class Vision implements VisionService {
     this.closed = true;
     this.controller.abort();
     if (this.timer) clearInterval(this.timer);
-    this.stopPromise = (async () => {
+    const stopping = (async () => {
       await this.screen.stop();
       await this.localVision?.stop();
       await this.audio?.stop();
       await Promise.allSettled([...this.pending]);
       try { await this.store.stop(); } catch (error) { this.cleanupFailed = true; throw error; }
-    })();
-    return this.stopPromise;
+    })().catch(error => {
+      // Keep the runtime closed, but let a later apply retry transient cleanup failures.
+      if (this.stopPromise === stopping) this.stopPromise = undefined;
+      throw error;
+    });
+    this.stopPromise = stopping;
+    return stopping;
   }
 }

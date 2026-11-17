@@ -6,6 +6,7 @@ import type { Context, ToolDefinition, MultimodalToolOutput, ToolContentPart } f
 import type { Vision } from './runtime.ts';
 import { fail, identity, type PreparedMedia, type CallOptions } from './types.ts';
 import type { ScreenResult } from './screen.ts';
+import type { VisualToolScope } from './visual-tool-scope.ts';
 
 export function localVisualMode(app: Vision) { return app.config?.visualUnderstanding?.backend === 'ollama'; }
 export function visualQuestion(value: unknown): string | undefined {
@@ -15,21 +16,24 @@ export function visualQuestion(value: unknown): string | undefined {
   return value.trim() || undefined;
 }
 /** Local mode always uses text-only transient transport, even when the host supports images. */
-export function registerVisualTool<A>(ctx: Context, app: Vision, tool: ToolDefinition<A, MultimodalToolOutput<Record<string, unknown>>>): boolean {
+export function registerVisualTool<A>(ctx: Context, app: Vision, tool: ToolDefinition<A, MultimodalToolOutput<Record<string, unknown>>>, scope?: VisualToolScope): boolean {
   if (localVisualMode(app)) {
     if (typeof ctx.tools.registerTransient !== 'function') return false;
-    ctx.tools.registerTransient<A, { text: string }, Record<string, unknown>>({ ...tool,
-      description: tool.description + ' 当前为本地 Ollama 描述模式，主模型只收到文字，未见原图；不可自动改用原图模式。',
-      async run(args, session) {
-        const output = await tool.run(args, session);
-        // A programming error must not smuggle an image into a text-only result.
-        if (output.content.some(part => part.type !== 'text')) fail('local_vision_route', '本地视觉结果格式无效，未交付图片。');
-        return { content: { text: output.content.map(part => part.type === 'text' ? part.text : '').join('\n') }, receipt: output.receipt };
-      },
-    });
+    const project = (output: MultimodalToolOutput<Record<string, unknown>>) => {
+      // A programming error must not smuggle an image into a text-only result.
+      if (output.content.some(part => part.type !== 'text')) fail('local_vision_route', '本地视觉结果格式无效，未交付图片。');
+      return { content: { text: output.content.map(part => part.type === 'text' ? part.text : '').join('\n') }, receipt: output.receipt };
+    };
+    const localTool = { ...tool,
+      description: tool.description + ' 当前为本地 Ollama 描述模式，主模型只收到文字，未见原图；不可自动改用原图模式。' };
+    const registered = scope ? scope.wrap(localTool, project) : { ...localTool,
+      async run(args: A, session: Parameters<typeof tool.run>[1]) { return project(await tool.run(args, session)); } };
+    const dispose = ctx.tools.registerTransient<A, { text: string }, Record<string, unknown>>(registered);
+    scope?.add(dispose);
   } else {
     if (typeof ctx.tools.registerMultimodal !== 'function') return false;
-    ctx.tools.registerMultimodal(tool);
+    const dispose = ctx.tools.registerMultimodal(scope ? scope.wrap(tool) : tool);
+    scope?.add(dispose);
   }
   return true;
 }
