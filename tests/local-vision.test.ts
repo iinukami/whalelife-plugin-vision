@@ -79,7 +79,7 @@ test('one bounded local request receives all images plus temporal and crop metad
     ...goodChat, prompt_eval_count: 17, eval_count: 12, message: { ...goodChat.message, thinking: privateMarker },
   }));
   const app = engine(t, { ...f.connection, parameters: { model: 'injected-model', messages: [{ content: privateMarker }],
-    tools: [{ name: 'forbidden' }], num_predict: -1, keep_alive: '99h', stream: true } });
+    tools: [{ name: 'forbidden' }], num_predict: -1, keep_alive: '99h', stream: true, think: true } });
   const whole = await picture(1.5), focus = await picture(2.5);
   focus.frames[0] = { ...focus.frames[0], index: 2, reason: 'focus', role: 'focus', crop: { x: .25, y: .1, width: .5, height: .5 } };
   const result = await app.describe([whole, focus], '红色方块在哪里？', signal());
@@ -89,6 +89,7 @@ test('one bounded local request receives all images plus temporal and crop metad
   assert.deepEqual(f.requests[0].body, { model: f.connection.model });
   const request = f.requests[1], body = request.body;
   assert.equal(body.model, f.connection.model); assert.equal(body.stream, false); assert.equal(body.keep_alive, '1m');
+  assert.equal(body.think, false);
   assert.equal(body.options.num_predict, 256); assert.equal(body.options.temperature, 0);
   assert.equal(body.tools, undefined); assert.equal(request.headers.authorization, undefined); assert.equal(request.headers.cookie, undefined);
   const user = body.messages.find((message: any) => message.role === 'user');
@@ -310,4 +311,32 @@ test('lifetime cancellation closes an active request and stop waits for local wo
   const pending = app.describe([image], undefined, signal()), rejected = assert.rejects(pending, expectCode('cancelled'));
   await received.promise; lifetime.abort(privateMarker); await app.stop(); await rejected;
   assert.equal(f.requests.length, 2);
+});
+
+
+test('local vision requests no thinking so a bounded answer budget can produce visual evidence', async t => {
+  const f = await mock(t, (req, res) => {
+    if (req.path === '/api/show') return json(res, {
+      capabilities: ['completion', 'vision', 'thinking'], thinking: { values: [true, false], default: true },
+    });
+    const disabled = req.body.think === false;
+    json(res, { done: true, done_reason: disabled ? 'stop' : 'length', eval_count: disabled ? 12 : settings.maxTokens,
+      message: { role: 'assistant', content: disabled ? goodChat.message.content : '', thinking: privateMarker } });
+  });
+  const app = engine(t, { ...f.connection, parameters: { think: true, options: { think: true } } });
+  const result = await app.describe([await picture()], undefined, signal());
+  assert.equal(result.text, goodChat.message.content); assert.equal(result.truncated, false);
+  assert.deepEqual(f.requests.map(req => req.path), ['/api/show', '/api/chat']);
+  assert.equal(f.requests[1].body.think, false); assert.equal(f.requests[1].body.options.think, undefined);
+  assert.doesNotMatch(JSON.stringify(result), /thinking|SUPPLIER_PRIVATE_MARKER/);
+});
+
+test('a model ignoring the no-thinking request cannot substitute its thinking for an empty answer', async t => {
+  const f = await mock(t, (req, res) => json(res, req.path === '/api/show' ? goodShow : {
+    done: true, done_reason: 'length', eval_count: settings.maxTokens,
+    message: { role: 'assistant', content: '', thinking: privateMarker },
+  }));
+  const app = engine(t, f.connection);
+  await assert.rejects(app.describe([await picture()], undefined, signal()), expectCode('local_vision_response'));
+  assert.equal(f.requests.length, 2); assert.equal(f.requests[1].body.think, false);
 });

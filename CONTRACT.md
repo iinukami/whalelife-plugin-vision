@@ -1,6 +1,6 @@
 # vision 服务契约
 
-插件版本 0.4.0，插件 ID 保持 `vision`。原有视觉服务版本 `1.0.0` 和视听扩展 `audiovisualApiVersion:"1.0.0"` 继续兼容。公开类型见 `src/types.ts` 与 `src/audio-types.ts`。旧 `prepare()` / `vision_view` 不包含声音，保留 `audioIncluded:false`。
+插件版本 0.4.1，插件 ID 保持 `vision`。原有视觉服务版本 `1.0.0` 和视听扩展 `audiovisualApiVersion:"1.0.0"` 继续兼容。公开类型见 `src/types.ts` 与 `src/audio-types.ts`。旧 `prepare()` / `vision_view` 不包含声音，保留 `audioIncluded:false`。
 
 ## 依赖、授权和来源
 
